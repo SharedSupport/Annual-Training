@@ -113,6 +113,11 @@ a licensing surveyor asks for.
 - Print packets ("Easy Print …", "… Packet") are excluded from extraction and kept as the
   section's printable download. Any packet sitting beside an excluded file is flagged
   for review; the site shows those as "being regenerated" and does **not** link them.
+- `NOT_CONTENT` — section cover pages, skipped without flagging the packets beside them
+  (unlike `EXCLUDE`, which marks a packet as still containing retired pages).
+- `AS_PAGES` (in `training_config.py`) — documents with a text layer that still render as
+  page images because the text reads badly: the Auto Accident Form with its scene diagram.
+  Their text still feeds search.
 - `TITLE_FIXES` and `LICENSED` (in `training_config.py`) are display-level too. Title
   fixes cover filename typos ("Referance") and a person's name in a filename; the
   licensed entry keeps the Red Cross card as page images with a notice and no download.
@@ -196,6 +201,13 @@ option (`git archive origin/binder-source | tar -x` puts them under `source/`), 
 only while the repo is private, and the branch must be deleted straight after.
 
 ## Design
+
+The header, navigation, and signature sheets use `static/logo.png` (white on
+transparent) on the maroon band when it exists. The sign page reproduces the three
+packet pages (certificate with the full topic list, Fire Safety, FA/CPR cover) with the
+wording in `training_config.py`; the trainer's name is typed, never a signature image,
+because the site is public. Fire Safety's date follows Day 1 and FA/CPR's follows Day 3
+until edited. Each section shows one print link, preferring the "Easy Print" file.
 
 Palette and section colors are lifted from the printed binder — the maroon and gold of the
 wordmark, and the actual tab colors, so the web nav maps to the tabs staff recognize. Body

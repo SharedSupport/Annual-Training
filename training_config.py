@@ -48,6 +48,64 @@ FIRE_TOPICS = [
     "Activating the Alarms", "Fire Safety Training DVD",
 ]
 
+# What the certificate lists under each day. Copied from the blank packet so
+# the sign page reads like the paper sheet; many of these topics have no
+# binder content and are covered live.
+CERT_TOPICS = {
+    "day1": [
+        "Mission Statement", "Self Determination", "Circle Meetings",
+        "Continuous Quality Improvement", "Worker's Compensation", "Community Inclusion",
+        "Relationship Building", "Person-Centered Practices/IDD",
+        "Department Issued Policies and Procedures",
+        "Safe and Appropriate Use of Behavior Supports", "Confidentiality Policy",
+        "Family Dynamics", "Fundamental/Individual Rights and Choices",
+        "Sexual Health, Personal Relationships & Sexuality Policy",
+        "Job Description/Staff Responsibilities", "Recognizing and Reporting Incidents",
+        "Emergency On-Call Procedures", "Use of Personal Vehicle Policy",
+        "Standard Universal Precautions", "6400/6500 Regulations",
+        "Policies & Procedures of the Home", "Trauma Informed Support",
+        "PBIS MANDT Training", "MANDT Trauma Overview", "Incident Management Policy",
+        "Abuse Policy", "Emergency Disaster Preparedness",
+        "Power/Heat Source Outage Procedure", "Disaster Preparedness Policy",
+        "Driver's Safety and Fleet Policy",
+    ],
+    "independent": ["Compliance Policy/Medicaid Waiver",
+                    "Video: TED Talk - Disabling Segregation",
+                    "Adult First Aid/CPR/AED Learning Course"],
+    "day2": ["Alternative Routes", "Oxygen Storage Policy", "Fatal Five HCQU",
+             "Community Participation Rules", "Diversity and Acceptance Training",
+             "Med Admin Review"],
+    "day3": ["FA/CPR/AED Skills Session", "Fit Testing",
+             "Review of Annual Training Materials", "Q&A Session"],
+}
+
+# Page 3 of the packet, per track. The track is set by the trainer.
+FACPR = {
+    "recert": {"title": "FA/CPR/AED - Recertification (2.75 Hours)", "hours": "2.75 Hours",
+               "description": "Complete Adult First Aid/CPR/AED recertification requirements.",
+               "type": "FA/CPR/AED Recertification - 2.75 Hours",
+               "button": "Recertification (2.75 hours)"},
+    "review": {"title": "FA/CPR Skill Session - For Review ONLY", "hours": "2.0 Hours",
+               "description": "Demonstrate First Aid and CPR skills post a review course.",
+               "type": "FA/CPR/AED Review - 2 Hours",
+               "button": "Review only (2.0 hours)"},
+}
+FACPR_OBJECTIVES = [
+    ("Choking Adult", ["Responsive", "Non-Responsive"]),
+    ("CPR Adult", ["2 minutes/5 sets of compressions & breaths with face shield", "AED Adult"]),
+]
+TRAINER = "Jessica McKee-Snyder"
+TRAINER_DEPT = "Training Department"
+# Pages 1 and 3 of the packet say 218; page 2 says 210 (known typo). 218 is used.
+FOOTER_ADDRESS = ("218 Bridge Avenue \u00b7 Sunbury, PA 17801 \u00b7 Phone: 570.286.4982 \u00b7 "
+                  "Fax: 570.286.4984 \u00b7 www.sharedsupport.org")
+
+# Documents shown as page images even though they have a text layer: forms
+# and diagrams whose extracted text reads badly. Text still feeds search.
+AS_PAGES = {
+    "auto-accident-form": "a form with an accident-scene diagram; the text layer reads badly",
+}
+
 # The packet says "all 15 sections"; the binder has 7. The count is dropped
 # until the training department settles it.
 ATTESTATION = (

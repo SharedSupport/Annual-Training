@@ -26,8 +26,9 @@ import shutil
 import unicodedata
 from pathlib import Path
 
-from training_config import (ATTESTATION, DELIVERY, FIRE_TOPICS, LICENSED,
-                             SCHEDULE, SIGN_TO, TITLE_FIXES)
+from training_config import (AS_PAGES, ATTESTATION, CERT_TOPICS, DELIVERY, FACPR,
+                             FACPR_OBJECTIVES, FIRE_TOPICS, FOOTER_ADDRESS, LICENSED,
+                             SCHEDULE, SIGN_TO, TITLE_FIXES, TRAINER, TRAINER_DEPT)
 
 ap = argparse.ArgumentParser(description=__doc__,
                              formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -43,6 +44,8 @@ ap.add_argument("--sign-to", default=SIGN_TO,
                 help=f"address signed sheets are emailed to (default {SIGN_TO})")
 ap.add_argument("--image-zoom", type=float, default=1.6,
                 help="render scale for image-only pages (1.0 = 72 dpi)")
+ap.add_argument("--logo", default="static/logo.png",
+                help="white-on-transparent logo for the maroon header; skipped if missing")
 ap.add_argument("--serve-licensed", action="store_true",
                 help="include page images of licensed material (only for a site behind sign-in)")
 ARGS = ap.parse_args()
@@ -55,6 +58,7 @@ CONTENT_VERSION = hashlib.sha256(
     Path(ARGS.content).read_bytes()).hexdigest()[:12]
 BUILT = dt.date.today().isoformat()
 WARN = list(SRC.get("warnings", []))
+LOGO = Path(ARGS.logo) if Path(ARGS.logo).is_file() else None
 
 # Paragraphs longer than this are split at sentence boundaries for display.
 # Purely a readability measure for text blocks the PDF never broke up;
@@ -172,11 +176,42 @@ def close_truncated(html):
     return html
 
 
+def drop_repeated_titles(html):
+    """Slide decks repeat a title on every continuation slide ("Weight
+    Management" five times). Keep the first of each top-level title."""
+    seen = set()
+
+    def repl(m):
+        key = re.sub(r"\s+", " ", m.group(1)).strip().lower()
+        if key in seen:
+            return ""
+        seen.add(key)
+        return m.group(0)
+    return re.sub(r"<h2>(.*?)</h2>\n?", repl, html, flags=re.S)
+
+
+def join_broken_lines(html):
+    """Slides and forms put every line in its own block. A paragraph with no
+    end punctuation followed by one starting in lowercase is one sentence."""
+    lines = html.split("\n")
+    out = []
+    for ln in lines:
+        if (out and ln.startswith("<p>") and out[-1].startswith("<p>")
+                and not re.search(r"[.:;!?\u2026]\s*</p>$", out[-1])
+                and re.match(r"<p>[a-z(&]", ln)):
+            out[-1] = out[-1][:-4] + " " + ln[3:]
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
 def prepare(doc, stats):
     html = doc["html"]
     if doc.get("truncated"):
         html = close_truncated(html)
     html = wrap_orphan_lists(html)
+    html = drop_repeated_titles(html)
+    html = join_broken_lines(html)
     html = split_long_paragraphs(html, stats)
     html = linkify(html)
     html, heads = add_heading_ids(html)
@@ -245,6 +280,9 @@ button{font:inherit;cursor:pointer}
 .brand{display:block;padding:0 20px 18px;border-bottom:1px solid var(--rule);margin-bottom:6px;text-decoration:none}
 .brand b{font-family:var(--sans);font-weight:600;letter-spacing:.06em;font-size:12px;color:var(--maroon);display:block}
 .brand span{font-size:26px;line-height:1.15;display:block;margin-top:4px}
+.brand.logo{background:var(--maroon);padding:16px 20px 14px;margin:-22px 0 6px;border-bottom:3px solid var(--gold)}
+.brand.logo img{display:block;width:150px;max-width:100%;height:auto}
+.brand.logo span{color:#F6F1E6;font-size:22px;margin-top:8px}
 .search{padding:12px 20px 4px}
 .search input{width:100%;padding:8px 10px;border:1px solid var(--rule);background:#fff;
   font-family:var(--sans);font-size:14px;color:var(--ink)}
@@ -268,8 +306,9 @@ button{font:inherit;cursor:pointer}
 
 main{padding:0 0 90px;min-width:0}
 .wrap{max-width:72ch;margin:0 auto;padding:0 28px}
-.hero{background:linear-gradient(180deg,#1B1B2F,#2A2543 60%,#3A2E4A);
-  color:#F6F1E6;padding:56px 28px 44px;margin-bottom:30px}
+.hero{background:linear-gradient(180deg,#6A1019,#7A1521 55%,#8C1D2B);border-bottom:4px solid var(--gold);
+  color:#F6F1E6;padding:48px 28px 44px;margin-bottom:30px}
+.hero .logo{display:block;width:220px;max-width:70%;height:auto;margin-bottom:22px}
 .hero .wrap{padding:0}
 .hero .org{display:block;font-family:var(--sans);font-weight:600;letter-spacing:.2em;
   font-size:12.5px;color:var(--gold);margin-bottom:10px}
@@ -308,7 +347,8 @@ main{padding:0 0 90px;min-width:0}
 .doc b{font-weight:600;font-size:17.5px}
 .doc .meta{font-family:var(--sans);font-size:12px;color:var(--muted);white-space:nowrap;flex:none}
 .printrow{margin-top:18px;font-family:var(--sans);font-size:13.5px;color:var(--muted);line-height:1.7}
-.printrow a{color:var(--ink)}
+.printrow a{color:var(--ink);font-weight:600;white-space:nowrap}
+.printrow a::before{content:"\1F5A8\FE0F  "}
 .flag{background:#F4E4C3;color:#6B4E12;font-size:11.5px;padding:1px 7px;white-space:nowrap}
 .links{margin-bottom:18px;display:grid;gap:10px}
 .link{display:block;background:#fff;border:1px solid var(--rule);border-left:4px solid var(--accent);
@@ -357,15 +397,33 @@ article td,article th{border:1px solid var(--rule);padding:6px 8px;vertical-alig
 .results p{margin:4px 0 0;font-size:15px;color:var(--muted)}
 mark{background:#F4E4C3;color:inherit}
 
-.sheet{background:#fff;border:1px solid var(--rule);padding:0 32px 28px;margin-bottom:22px}
-.sheet .sh{border-top:6px solid var(--maroon);border-bottom:3px solid var(--gold);
-  margin:0 -32px 20px;padding:16px 32px 12px}
-.sheet .sh b{font-family:var(--sans);font-size:11px;letter-spacing:.08em;color:var(--maroon);display:block}
-.sheet .sh h2{margin:5px 0 2px;font-size:24px;font-weight:600}
-.sheet .sh em{font-style:normal;font-family:var(--sans);font-size:12.5px;color:var(--muted)}
-.attest{background:var(--page);border:1px solid var(--rule);padding:15px 17px;font-size:15.5px;margin:16px 0}
-.topics{columns:2;column-gap:26px;font-size:14px;font-family:var(--sans);color:var(--muted);margin:4px 0 20px}
-.topics div{break-inside:avoid;margin-bottom:3px}
+.sheet{background:#fff;border:1px solid var(--rule);padding:0 32px 22px;margin-bottom:26px;font-family:var(--sans);font-size:14px}
+.sheet .sh{background:var(--maroon);border-bottom:4px solid var(--gold);margin:0 -32px 18px;padding:14px 32px}
+.sheet .sh img{display:block;width:150px;height:auto}
+.sheet .sh b{color:#F6F1E6;font-family:var(--sans);font-size:14px;letter-spacing:.08em}
+.sheet h2{text-align:center;font-size:24px;margin:4px 0 2px;font-weight:700;font-family:var(--sans)}
+.sheet .sub{text-align:center;color:var(--ink);margin:0 0 18px}
+.sheet h3{color:var(--maroon);font-size:14px;font-weight:700;margin:16px 0 4px;letter-spacing:.02em}
+.sheet h3.plain{color:var(--ink)}
+.sheet .idbox{border:1.5px solid var(--maroon);border-radius:6px;background:#F7F5F0;padding:10px 14px;margin:0 0 6px}
+.sheet .idbox .row{gap:12px 20px}
+.sheet ul{margin:0 0 6px;padding:0 0 0 14px;list-style:none}
+.sheet li{margin:0 0 2px;padding-left:12px;text-indent:-12px}
+.sheet li::before{content:"*  ";color:var(--muted)}
+.sheet ul.two{columns:2;column-gap:30px}
+.sheet ul.two li{break-inside:avoid}
+.sheet .datelist{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center;max-width:360px;margin:0 0 4px 14px}
+.sheet .datelist input{margin:0;padding:6px 2px}
+.attest{background:#fff;border:1px solid var(--rule);border-radius:4px;padding:12px 14px;font-size:13.5px;margin:4px 0 14px;font-family:var(--serif);font-size:15px}
+.sheet .trainer{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;margin-top:10px}
+.sheet .trainer .line{border-bottom:1px solid var(--ink);min-width:200px;flex:1}
+.sheet .sig-line{font-family:"Segoe Script","Brush Script MT",cursive;font-size:20px;color:var(--muted)}
+.sheet .foot{text-align:center;color:var(--muted);font-size:11px;margin-top:22px}
+.sheet .certify{text-align:center;margin:0 0 14px;font-size:15px}
+.sheet .type{color:var(--gold);font-weight:700}
+.sheet em{font-style:italic}
+.sheet .field{margin-bottom:10px}
+@media(max-width:640px){.sheet ul.two{columns:1}}
 .field{display:block;margin-bottom:15px;font-family:var(--sans);font-size:13px;color:var(--muted)}
 .field input{display:block;width:100%;margin-top:4px;padding:9px 2px;border:0;
   border-bottom:1px solid var(--ink);background:transparent;font-family:var(--serif);font-size:16px;color:var(--ink)}
@@ -373,9 +431,14 @@ mark{background:#F4E4C3;color:inherit}
 .field input:disabled{border-bottom-color:var(--rule)}
 .row{display:grid;gap:20px}
 @media(min-width:640px){.row{grid-template-columns:1fr 1fr}}
-.track{display:flex;border:1px solid var(--rule);margin:4px 0 20px}
-.track button{flex:1;background:none;border:0;padding:12px 8px;font-family:var(--sans);font-size:13.5px;color:var(--muted)}
-.track button[aria-pressed="true"]{background:var(--ink);color:#fff;font-weight:600}
+.track{display:flex;gap:10px;margin:8px 0 18px;flex-wrap:wrap}
+.track button{flex:1;min-width:200px;background:#fff;border:2px solid var(--ink);border-radius:6px;padding:12px 14px;
+  font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink);text-align:left;display:flex;gap:10px;align-items:center;
+  box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.track button::before{content:"";width:16px;height:16px;border:2px solid var(--ink);border-radius:50%;flex:none;box-sizing:border-box}
+.track button:hover{background:#F7F5F0}
+.track button[aria-pressed="true"]{background:var(--maroon);border-color:var(--maroon);color:#fff}
+.track button[aria-pressed="true"]::before{border-color:#fff;background:#fff;box-shadow:inset 0 0 0 3px var(--maroon)}
 .acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
 .submit{background:var(--maroon);color:#fff;border:0;padding:13px 22px;font-family:var(--sans);font-weight:600;font-size:15px}
 .submit:disabled{background:#B9B3A9;cursor:not-allowed}
@@ -397,18 +460,18 @@ footer{font-family:var(--sans);font-size:12px;color:var(--muted);border-top:1px 
     background:var(--ink);color:#F6F1E6;border:0;padding:15px;font-family:var(--sans);font-weight:600;font-size:15px}
   main{padding-bottom:80px}
   .doc{flex-direction:column;gap:3px}
-  .topics{columns:1}
   .sheet{padding:0 18px 22px}
-  .sheet .sh{margin:0 -18px 18px;padding:14px 18px 10px}
+  .sheet .sh{margin:0 -18px 18px;padding:12px 18px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media print{
   body{background:#fff;font-size:11pt;background-image:none}
-  .rail,.railtoggle,.scrim,.acts,.track,.note,.pager,.hero,.sched,.jump,.totop,footer,.skip{display:none!important}
+  .rail,.railtoggle,.scrim,.acts,.track,.note,.pager,.hero,.sched,.jump,.totop,footer,.skip,.signintro{display:none!important}
+  .sheet .sh{background:var(--maroon)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .shell{display:block}
   .wrap{max-width:none;padding:0}
   .sheet{border:0;padding:0;margin:0 0 20px;break-after:page}
-  .sheet .sh{margin:0 0 14px;padding:10px 0}
+  .sheet .sh{margin:0 0 14px;padding:10px 16px}
   .field input{border-bottom:1px solid #000}
   a{text-decoration:none;color:#000}
 }
@@ -464,39 +527,55 @@ JS = r"""
   if(form){
     var track=null, note=document.getElementById('signnote'), submit=form.querySelector('.submit');
     var facpr=form.querySelectorAll('[data-facpr]'), api=form.dataset.submit, to=form.dataset.mailto;
-    var LABELS={employee_name:'Employee name',job_title:'Job title',day1_date:'Day 1 date',day2_date:'Day 2 date',
-      day3_date:'Day 3 date',staff_signature:'Staff signature',fire_employee_name:'Employee name',
+    var FAC=__FACPR__;
+    var LABELS={employee_name:'Employee name',job_title:'Job title',training_date_range:'Training dates',day1_date:'Day 1',day2_date:'Day 2',
+      day3_date:'Day 3',staff_signature:'Staff signature',fire_employee_name:'Employee name',
       fire_training_date:'Training date',fire_employee_signature:'Employee signature',
       facpr_employee_name:'Employee name',facpr_date_top:'Date',facpr_employee_signature:'Employee signature'};
+    var $n=function(n){return form.querySelector('[name='+n+']');};
+    function fmt(iso){if(!iso) return ''; var p=iso.split('-'); return p.length===3?(p[1]+'/'+p[2]+'/'+p[0]):iso;}
+    // Fire safety follows Day 1, First Aid follows Day 3, until someone edits them.
+    form.querySelectorAll('[data-follow]').forEach(function(el){
+      var src=$n(el.dataset.follow);
+      src.addEventListener('input',function(){if(!el.dataset.touched) el.value=src.value;});
+      el.addEventListener('input',function(){el.dataset.touched=el.value?'1':'';});
+    });
+    function range(){var a=$n('day1_date').value, z=$n('day3_date').value;
+      $n('training_date_range').value=(a||z)?(fmt(a)+(z?' - '+fmt(z):'')):'';}
+    $n('day1_date').addEventListener('input',range); $n('day3_date').addEventListener('input',range);
     function setTrack(t){track=t;
       form.querySelectorAll('[data-track]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.track===t);});
       facpr.forEach(function(el){el.disabled=!t;});
-      form.querySelector('[name=track]').value=t||'';
-      var hours=t==='recert'?'2.75':'2.0';
-      document.getElementById('facpr-hours').textContent=t?('FA/CPR/AED '+(t==='recert'?'Recertification':'Review')+' · '+hours+' hours'):'Your trainer tells you which of these applies to you';
+      $n('track').value=t||'';
+      var f=FAC[t||'recert'];
+      document.getElementById('facpr-hours').textContent=f.hours;
+      document.getElementById('facpr-title').textContent=f.title;
+      document.getElementById('facpr-desc').textContent=f.description;
+      document.getElementById('facpr-type').textContent=f.type;
       submit.disabled=!(t&&(api||to));
       submit.textContent=api?'Submit signed sheets':'Email your signed sheets';
       note.textContent=!(api||to)?'Submission is not switched on for this build. Print the sheets and hand them in.'
-        :!t?'Pick a First Aid option to enable signing.'
+        :!t?'Choose Recertification or Review only (your trainer tells you which) to enable signing.'
         :api?'':'This opens your email app with the sheets filled in, addressed to the training department ('+to+'). Send it from your own work email so they know it came from you.';
     }
     function values(){var d={}; new FormData(form).forEach(function(v,k){d[k]=v;}); return d;}
     function mailBody(d){
-      var t=d.track==='recert'?'FA/CPR/AED Recertification (2.75 hours)':'FA/CPR/AED Review (2.0 hours)';
-      var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','',
-        '1. Annual Training certificate (22.5 hours)'];
-      ['employee_name','job_title','day1_date','day2_date','day3_date','staff_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(d[k]||''));});
+      var f=FAC[d.track||'recert'];
+      var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','','1. Annual Training certificate (22.5 hours)'];
+      ['employee_name','job_title','training_date_range','day1_date','day2_date','day3_date','staff_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1&&k!=='training_date_range'?fmt(d[k]):(d[k]||'')));});
       L.push('  Attestation: agreed as printed on the sign page','','2. Fire Safety Training');
-      ['fire_employee_name','fire_training_date','fire_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(d[k]||''));});
-      L.push('','3. '+t);
-      ['facpr_employee_name','facpr_date_top','facpr_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(d[k]||''));});
+      ['fire_employee_name','fire_training_date','fire_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
+      L.push('','3. '+f.title+' ('+f.type+')');
+      ['facpr_employee_name','facpr_date_top','facpr_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
       L.push('','Sent from the digital binder, content version '+d.content_version+', '+new Date().toISOString());
       return L.join('\n');
     }
     form.querySelectorAll('[data-track]').forEach(function(b){b.addEventListener('click',function(){setTrack(b.dataset.track);});});
     document.getElementById('print').addEventListener('click',function(){window.print();});
     form.addEventListener('submit',function(e){
-      e.preventDefault(); if(!track) return;
+      e.preventDefault();
+      if(!track){note.textContent='Choose Recertification or Review only first.'; return;}
+      if(!form.checkValidity()){form.reportValidity(); note.textContent='Every field is required. Fill in the highlighted ones.'; return;}
       var data=values(); data.submitted_at=new Date().toISOString();
       if(!api){
         if(!to) return;
@@ -522,10 +601,13 @@ def schedule_for(key):
 
 
 def rail(active_slug=None, active="sec"):
-    parts = [f'<a class="brand" href="{url()}"><b>Shared Support</b><span>Annual Training</span></a>',
+    brand = (f'<a class="brand logo" href="{url()}"><img src="{url("assets", "logo.png").rstrip("/")}" alt="Shared Support">'
+             f'<span>Annual Training</span></a>' if LOGO else
+             f'<a class="brand" href="{url()}"><b>Shared Support</b><span>Annual Training</span></a>')
+    parts = [brand,
              f'<form class="search" role="search" action="{url("search")}"><label class="visually-hidden" for="rs" '
-             'style="position:absolute;left:-999px">Search the binder</label>'
-             '<input id="rs" type="search" name="q" placeholder="Search the binder"></form>']
+             'style="position:absolute;left:-999px">Search a policy</label>'
+             '<input id="rs" type="search" name="q" placeholder="Search a policy"></form>']
     for st in SCHEDULE:
         secs = [s for s in SECTIONS if s["delivery"] == st["key"]]
         parts.append(f'<div class="grp"><div class="grplab"><b>{esc(st["label"])}</b><em>{esc(st["how"])}</em></div>')
@@ -597,10 +679,12 @@ def render_home():
         also = ('<div class="also"><h2>Also in the binder</h2><div class="chips">' +
                 "".join(f'<a class="chip" href="{e["url"]}">{esc(e["title"])}</a>' for e in EXTRAS) +
                 '</div></div>')
-    body = (f'<header class="hero"><div class="wrap"><span class="org">Shared Support</span>'
+    org = (f'<img class="logo" src="{url("assets", "logo.png").rstrip("/")}" alt="Shared Support">' if LOGO
+           else '<span class="org">Shared Support</span>')
+    body = (f'<header class="hero"><div class="wrap">{org}'
             f'<h1>Annual Training</h1><span class="band">Digital Binder</span>'
             f'<form role="search" action="{url("search")}"><input type="search" name="q" '
-            f'placeholder="Search every policy" aria-label="Search the binder"><button>Search</button></form>'
+            f'placeholder="Search a policy" aria-label="Search a policy"><button>Search</button></form>'
             f'</div></header><div class="wrap"><div class="sched"><h2>How your training runs</h2>'
             + "".join(steps) + '</div>'
             '<div class="printrow">Need paper? Every section lists its print-ready packet on its page.</div>'
@@ -621,25 +705,30 @@ def render_section(s):
         + (f'rev {esc(d["revised"])} &middot; ' if d["revised"] else "")
         + (f'{pages_word(d["pages"])}' + (" &middot; scanned" if d["image_only"] else ""))
         + "</span></a>" for d in s["documents"])
-    prints = ""
-    if s["printables"]:
-        items = []
-        for p in s["printables"]:
-            if p.get("review"):
-                items.append(f'{esc(p["title"])} <span class="flag">being regenerated</span>')
-            elif p.get("href"):
-                items.append(f'<a href="{p["href"]}">{esc(p["title"])}</a> (PDF)')
-            else:
-                items.append(f'{esc(p["title"])} <span class="flag">PDF not in this build</span>')
-        prints = '<div class="printrow">Print-ready packet: ' + ", ".join(items) + "."
-        if any(p.get("review") for p in s["printables"]):
-            prints += (" A packet marked <em>being regenerated</em> still contains the retired DCI "
-                       "pages, so it is not linked until the training department reissues it.")
-        prints += "</div>"
+    prints = print_row(s)
     body = (f'<div class="wrap"><div class="sec-head"><span class="n">'
             f'{esc(st["label"])} &middot; {esc(st["how"])}</span><h1>{esc(s["title"])}</h1></div>'
             + links + f'<div class="doclist">{docs}</div>' + prints + "</div>")
     write(s["rel"] + "/index.html", layout(s["title"], body, s["slug"], accent=s["color"]))
+
+
+def print_row(s):
+    """One line: the section's print packet. "Easy Print" files are preferred
+    over the "… Packet" duplicates; a packet flagged for review (it still
+    contains retired pages) is never linked."""
+    if not s["printables"]:
+        return ""
+    ok = [p for p in s["printables"] if not p.get("review")]
+    ok.sort(key=lambda p: 0 if p["title"].lower().startswith("easy print") else 1)
+    if ok and ok[0].get("href"):
+        p = ok[0]
+        size = f", {p['size_mb']:.0f} MB" if p.get("size_mb") else ""
+        return f'<div class="printrow"><a href="{p["href"]}">Print this section (PDF{size})</a></div>'
+    if ok:
+        return '<div class="printrow">Print packet: not included in this build.</div>'
+    return ('<div class="printrow">Print packet <span class="flag">being regenerated</span> '
+            'it still contains the retired DCI pages, so it isn\u2019t linked until the training '
+            'department reissues it.</div>')
 
 
 def jump_list(heads):
@@ -676,7 +765,7 @@ def render_doc(s, d, i, stats):
     if d.get("truncated"):
         notices.append("Only the first part of this document is in this build. The full text "
                        "appears once the binder is re-extracted.")
-    if d["image_only"]:
+    if d["image_only"] or d["slug"] in AS_PAGES:
         jump = ""
         if d.get("pages_img"):
             article = "".join(
@@ -685,6 +774,9 @@ def render_doc(s, d, i, stats):
                 for n, (u, w, h) in enumerate(d["pages_img"], 1))
         elif d["slug"] in LICENSED:
             article = ""
+        elif d["slug"] in AS_PAGES:
+            html, _ = prepare(d, stats)
+            article = html
         else:
             article = (f'<div class="placeholder">Scanned handout, {pages_word(d["pages"])}. '
                        'Page images are added when the site is built from the binder folder.</div>')
@@ -720,43 +812,77 @@ def render_search():
 
 def render_sign():
     def field(label, name, kind="text", ph="", cls="", extra=""):
-        return (f'<label class="field">{label}<input type="{kind}" name="{name}"'
+        return (f'<label class="field">{label}<input type="{kind}" name="{name}" required'
                 f'{" class=" + chr(34) + cls + chr(34) if cls else ""}'
                 f'{" placeholder=" + chr(34) + ph + chr(34) if ph else ""}{extra}></label>')
-    topics = "".join(f"<div>{esc(t)}</div>" for t in FIRE_TOPICS)
+
+    def ul(items, two=False):
+        return f'<ul class="{"two" if two else ""}">' + "".join(f"<li>{esc(i)}</li>" for i in items) + "</ul>"
+
+    band = (f'<div class="sh"><img src="{url("assets", "logo.png").rstrip("/")}" alt="Shared Support"></div>'
+            if LOGO else '<div class="sh"><b>SHARED SUPPORT, INC.</b></div>')
+    foot = f'<div class="foot">{esc(FOOTER_ADDRESS)}</div>'
+    trainer = (f'<div class="trainer"><b>Trainer:</b><span class="sig-line">{esc(TRAINER)}</span>'
+               f'<span>{esc(TRAINER)}, {esc(TRAINER_DEPT)}</span></div>')
     submit_attr = (f' data-submit="{esc(ARGS.submit_url)}"' if ARGS.submit_url
                    else f' data-mailto="{esc(ARGS.sign_to)}"' if ARGS.sign_to else "")
     how = ("Submitting sends them to the training department"
            if ARGS.submit_url else
            f"Sending emails them to the training department at {esc(ARGS.sign_to)} from your own mail app"
            if ARGS.sign_to else "Print them and hand them in")
+    objectives = "".join(f'<h3 class="plain">{esc(h)}</h3>{ul(items)}' for h, items in FACPR_OBJECTIVES)
+    rec = FACPR["recert"]
     body = f"""<div class="wrap" style="padding-top:34px">
-<h1 style="font-size:32px;margin:0 0 6px;font-weight:600">Sign your training sheets</h1>
-<p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you’ve finished all three days.
-{how}; printing gives you the same three sheets on paper.</p>
-<form id="signform"{submit_attr}>
+<div class="signintro"><h1 style="font-size:32px;margin:0 0 6px;font-weight:600">Sign your training sheets</h1>
+<p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you\u2019ve finished all three days. Every field is required.
+{how}; printing gives you the same three sheets on paper.</p></div>
+<form id="signform"{submit_attr} novalidate>
 <input type="hidden" name="content_version" value="{CONTENT_VERSION}">
 <input type="hidden" name="track" value="">
-<div class="sheet"><div class="sh"><b>SHARED SUPPORT, INC.</b><h2>Annual Training</h2>
-<em>Certificate of Training &middot; Total hours: 22.5</em></div>
-<div class="row">{field("Employee name", "employee_name", extra=" autocomplete='name' required")}{field("Job title", "job_title")}</div>
-<div class="row">{field("Day 1 date", "day1_date", "date")}{field("Day 2 date", "day2_date", "date")}</div>
-<div class="row">{field("Day 3 date", "day3_date", "date")}<span></span></div>
-<div class="attest">{esc(ATTESTATION)}</div>
-{field("Staff signature", "staff_signature", ph="Type your full name", cls="sig", extra=" required")}
-</div>
-<div class="sheet"><div class="sh"><b>EMERGENCY TRAINING</b><h2>Fire Safety Training</h2><em>Topics covered</em></div>
-<div class="topics">{topics}</div>
-<div class="row">{field("Employee name", "fire_employee_name")}{field("Training date", "fire_training_date", "date")}</div>
-{field("Employee signature", "fire_employee_signature", ph="Type your full name", cls="sig")}
-</div>
-<div class="sheet"><div class="sh"><b>TRAINING COVER</b><h2>First Aid / CPR / AED</h2>
-<em id="facpr-hours">Your trainer tells you which of these applies to you</em></div>
-<div class="track"><button type="button" data-track="recert" aria-pressed="false">Recertification &middot; 2.75 hours</button>
-<button type="button" data-track="review" aria-pressed="false">Review only &middot; 2.0 hours</button></div>
-<div class="row">{field("Employee name", "facpr_employee_name", extra=" data-facpr disabled")}{field("Date", "facpr_date_top", "date", extra=" data-facpr disabled")}</div>
-{field("Employee signature", "facpr_employee_signature", ph="Type your full name", cls="sig", extra=" data-facpr disabled")}
-</div>
+
+<div class="sheet">{band}
+<h2>Annual Training</h2><p class="sub">Certificate of Training &nbsp;\u00b7&nbsp; Total Hours: 22.5</p>
+<div class="idbox"><div class="row">{field("Employee Name:", "employee_name", extra=" autocomplete='name'")}{field("Job Title:", "job_title")}</div>
+<label class="field">Training Dates:<input type="text" name="training_date_range" readonly placeholder="filled in from the dates below"></label></div>
+<h3>TRAINING DATES</h3>
+<div class="datelist"><span>Day 1:</span><input type="date" name="day1_date" required aria-label="Day 1 date">
+<span>Day 2:</span><input type="date" name="day2_date" required aria-label="Day 2 date">
+<span>Day 3:</span><input type="date" name="day3_date" required aria-label="Day 3 date"></div>
+<h3>DAY 1 - Annual Training</h3>{ul(CERT_TOPICS["day1"], two=True)}
+<h3>INDEPENDENT TRAININGS (complete before Day 2)</h3>{ul(CERT_TOPICS["independent"])}
+<h3>DAY 2 - Annual Training</h3>{ul(CERT_TOPICS["day2"])}
+<h3>DAY 3 - In-Person Training</h3>{ul(CERT_TOPICS["day3"])}
+<h3>ATTESTATION</h3><div class="attest">{esc(ATTESTATION)}</div>
+{field("Staff Signature:", "staff_signature", ph="Type your full name", cls="sig")}
+{trainer}
+{foot}</div>
+
+<div class="sheet">{band}
+<h2>Emergency Training: Fire Safety Training</h2><p class="sub"><b>By Expert</b></p>
+<p class="certify">This is to certify that Shared Support, Inc. has conducted and completed<br>Fire Safety Training as specified below for:</p>
+<div class="row">{field("Employee Name", "fire_employee_name")}{field("Employee Signature", "fire_employee_signature", ph="Type your full name", cls="sig")}</div>
+<h3>Training Date:</h3><div class="datelist"><span></span><input type="date" name="fire_training_date" required data-follow="day1_date" aria-label="Fire safety training date"></div>
+<h3>Training Topics:</h3>{ul(FIRE_TOPICS)}
+<div class="trainer"><span><b>{esc(TRAINER)}</b><br><small>Trainer\u2019s Name</small></span>
+<span class="sig-line">{esc(TRAINER)}</span></div>
+{foot}</div>
+
+<div class="sheet">{band}
+<h2>Training Cover</h2>
+<div class="row"><div class="datelist" style="margin-left:0"><b>Date:</b><input type="date" name="facpr_date_top" required data-follow="day3_date" aria-label="First aid training date"></div>
+<div style="text-align:right"><b>Total Hours: <span id="facpr-hours">{esc(rec["hours"])}</span></b></div></div>
+<p style="margin:14px 0 6px;font-family:var(--sans);font-size:13px;color:var(--muted)">Your trainer tells you which of these applies to you:</p>
+<div class="track"><button type="button" data-track="recert" aria-pressed="false">{esc(rec["button"])}</button>
+<button type="button" data-track="review" aria-pressed="false">{esc(FACPR["review"]["button"])}</button></div>
+<h2 id="facpr-title" style="text-align:left;font-size:20px;color:var(--maroon)">{esc(rec["title"])}</h2>
+<h3><em>TRAINING DESCRIPTION:</em></h3><p id="facpr-desc"><em>{esc(rec["description"])}</em></p>
+<h3>TRAINING OBJECTIVE:</h3><p style="margin:0 0 4px 14px">Demonstrate the skills for the following:</p>{objectives}
+<div class="idbox">{field("Employee Name:", "facpr_employee_name", extra=" data-facpr disabled")}
+<div><b>Type:</b> &nbsp;<span class="type" id="facpr-type">{esc(rec["type"])}</span></div></div>
+{field("Employee Signature:", "facpr_employee_signature", ph="Type your full name", cls="sig", extra=" data-facpr disabled")}
+<div class="trainer"><b>Trainer\u2019s Signature:</b><span class="sig-line">{esc(TRAINER)}</span><span>{esc(TRAINER)}</span></div>
+{foot}</div>
+
 <div class="acts"><button class="submit" type="submit" disabled>Submit signed sheets</button>
 <button class="ghost" type="button" id="print">Print these sheets</button></div>
 <p class="note" id="signnote"></p>
@@ -798,7 +924,7 @@ for s in SRC["sections"]:
         d["url"] = url(d["rel"])
         if d.get("path"):
             fname = Path(d["path"]).name
-            if d["image_only"] and (d["slug"] not in LICENSED or ARGS.serve_licensed):
+            if (d["image_only"] or d["slug"] in AS_PAGES) and (d["slug"] not in LICENSED or ARGS.serve_licensed):
                 d["pages_img"] = render_pages(d["path"], f"pages/{s['slug']}/{d['slug']}")
                 STATS["images"] += len(d["pages_img"])
             if d["slug"] not in LICENSED:      # licensed material is never served as a file
@@ -813,6 +939,7 @@ for s in SRC["sections"]:
             p["href"] = copy_pdf(p["path"], f"print/{s['slug']}/{Path(p['path']).name}")
             if p["href"]:
                 STATS["pdfs"] += 1
+                p["size_mb"] = source_path(p["path"]).stat().st_size / 1048576
     SECTIONS.append(s)
 
 for e in SRC.get("extras", []):
@@ -826,7 +953,12 @@ for e in SRC.get("extras", []):
     EXTRAS.append(e)
 
 write("assets/site.css", CSS.strip() + "\n")
-write("assets/site.js", JS.strip() + "\n")
+if LOGO:
+    (OUT / "assets").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(LOGO, OUT / "assets" / "logo.png")
+else:
+    WARN.append(f"no logo at {ARGS.logo}; header shows the name in text")
+write("assets/site.js", JS.strip().replace("__FACPR__", json.dumps(FACPR)) + "\n")
 render_home()
 render_search()
 render_sign()

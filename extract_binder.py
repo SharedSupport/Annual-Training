@@ -50,6 +50,12 @@ EXCLUDE = {
         "the Time & Attendance help guide linked on the section page.",
 }
 
+# Files that aren't content: section cover pages. Skipped without flagging
+# the section's print packets (a cover page in a packet is fine).
+NOT_CONTENT = {
+    "Alternative Routes Cover Sheet": "section cover page",
+}
+
 # Wording fixed on the site because the source document is out of date. Each
 # entry must match exactly once, or extraction warns - a silent no-op after a
 # source revision would put the stale text back in front of staff.
@@ -151,7 +157,8 @@ RUNIN_RE = re.compile(r"^([A-Z][A-Z&/,'’ \-]{2,48}):\s+(\S.*)$")
 ROMAN_RE = re.compile(r"^[IVX]{1,5}\.\s+[A-Z].{2,78}$")
 LONE_NUMERAL_RE = re.compile(r"^(?:[IVX]{1,5}|\d{1,2}|[A-Z])\.$")
 PAGE_NO_RE = re.compile(r"^(?:page\s+)?\d{1,3}(?:\s*(?:of|/)\s*\d{1,3})?$", re.I)
-BULLET_RE = re.compile(r"^(?:[•●▪■◦]|[–\-o]\s)\s*")
+BULLET_RE = re.compile(r"^(?:[•●▪■◦\ue000-\uf8ff]|[–\-o]\s)\s*")
+PRIVATE_USE_RE = re.compile(r"[\ue000-\uf8ff]")
 
 
 def page_furniture(pages):
@@ -190,6 +197,9 @@ def extract_html(path):
                     continue
                 spans = [sp for sp in ln["spans"] if sp["text"].strip()]
                 txt = "".join(sp["text"] for sp in ln["spans"]).strip()
+                if PRIVATE_USE_RE.match(txt):          # Wingdings bullet glyph
+                    txt = "\u2022 " + txt[1:].strip()
+                txt = PRIVATE_USE_RE.sub("", txt).strip()
                 if not txt:
                     continue
                 isbold = lambda sp: "Bold" in sp["font"] or sp.get("flags", 0) & 16
@@ -336,6 +346,9 @@ def main():
             if f.stem in EXCLUDE:
                 excluded_dirs.add(f.parent)
                 warnings.append(f"{title}: excluded '{display}' - {EXCLUDE[f.stem]}")
+                continue
+            if f.stem in NOT_CONTENT:
+                warnings.append(f"{title}: skipped '{display}' - {NOT_CONTENT[f.stem]}")
                 continue
             if is_printable_duplicate(f.stem):
                 printables.append({"title": display, "path": rel,
