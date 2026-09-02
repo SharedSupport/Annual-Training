@@ -1,0 +1,9 @@
+wrote site/ : 52 pages, 40 documents in 7 sections, 1 extra, 46 PDFs, 47 page images, content version f16e0106e894
+  warning: corrected 'HEAVY HITTER LIST': 'DCI clock in and clock out' -> 'iCM clock in and clock out' (DCI is retired - time & attendance now lives in iCM)
+  warning: Independent Trainings: excluded 'How to use DCI cheet sheet' - DCI is retired - time & attendance now lives in iCM. Superseded by the Time & Attendance help guide linked on the section page.
+  warning: Independent Trainings: printable 'Easy Print Medicaid Waiver-CP Review' likely still contains excluded pages - regenerate before linking it
+  warning: Independent Trainings: printable 'Medicaid Waiver & CP Rules Packet' likely still contains excluded pages - regenerate before linking it
+  warning: Independent Trainings: printable 'Easy Print Independent Trainings' likely still contains excluded pages - regenerate before linking it
+  warning: title shown as 'First Aid / CPR Reference Card' (file is named 'First Aid - CPR Referance Card')
+  warning: title shown as 'Frequently Asked Questions' (file is named 'Frequently Asked Questions - Steph')
+  warning: 22 very long paragraphs split at sentence boundaries for display
