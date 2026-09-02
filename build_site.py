@@ -525,7 +525,7 @@ mark{background:#F4E4C3;color:inherit}
 .sheet .trainer .line{border-bottom:1px solid var(--ink);min-width:200px;flex:1}
 .sheet .sig-line{font-family:"Segoe Script","Brush Script MT",cursive;font-size:20px;color:var(--muted)}
 .sheet .sigimg{height:30px;width:auto;vertical-align:baseline;margin:0 4px -6px}
-.sheet .tdate{margin-left:auto}.sheet .tdate .line{display:inline-block;border-bottom:1px solid var(--ink);width:110px}
+.sheet .tdate{margin-left:auto;color:var(--muted)}.sheet .tdate b{color:var(--ink)}
 .sheet .foot{text-align:center;color:var(--muted);font-size:11px;margin-top:22px}
 .sheet .certify{text-align:center;margin:0 0 14px;font-size:15px}
 .sheet .type{color:var(--gold);font-weight:700}
@@ -724,7 +724,8 @@ JS = r"""
       el.addEventListener('input',function(){el.dataset.touched=el.value?'1':'';});
     });
     function range(){var a=$n('day1_date').value, z=$n('day3_date').value;
-      $n('training_date_range').value=(a||z)?(fmt(a)+(z?' - '+fmt(z):'')):'';}
+      $n('training_date_range').value=(a||z)?(fmt(a)+(z?' - '+fmt(z):'')):'';
+      $n('trainer_date_p1').value=z; document.getElementById('trainer-date').textContent=z?fmt(z):'(Day 3 date)';}
     $n('day1_date').addEventListener('input',range); $n('day3_date').addEventListener('input',range);
     function setTrack(t){track=t;
       form.querySelectorAll('[data-track]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.track===t);});
@@ -746,7 +747,7 @@ JS = r"""
       var f=FAC[d.track||'recert'];
       var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','','1. Annual Training certificate (22.5 hours)'];
       ['employee_name','job_title','training_date_range','day1_date','day2_date','day3_date','staff_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1&&k!=='training_date_range'?fmt(d[k]):(d[k]||'')));});
-      L.push('  Attestation: agreed as printed on the sign page','','2. Fire Safety Training');
+      L.push('  Attestation: agreed as printed on the sign page','  Date signed: '+fmt(d.trainer_date_p1),'','2. Fire Safety Training');
       ['fire_employee_name','fire_training_date','fire_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
       L.push('','3. '+f.title+' ('+f.type+')');
       ['facpr_employee_name','facpr_date_top','facpr_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
@@ -1051,7 +1052,8 @@ def render_sign():
     sig = (f'<img class="sigimg" src="{url("assets", "trainer-signature.png").rstrip("/")}" alt="{esc(TRAINER)} signature">'
            if SIG else f'<span class="sig-line">{esc(TRAINER)}</span>')
     trainer = (f'<div class="trainer"><b>Trainer:</b>{sig}'
-               f'<span>{esc(TRAINER)}, {esc(TRAINER_DEPT)}</span><span class="tdate">Date: <span class="line"></span></span></div>')
+               f'<span>{esc(TRAINER)}, {esc(TRAINER_DEPT)}</span>'
+               f'<span class="tdate">Date signed: <b id="trainer-date">(Day 3 date)</b></span></div>')
     submit_attr = (f' data-submit="{esc(ARGS.submit_url)}"' if ARGS.submit_url
                    else f' data-mailto="{esc(ARGS.sign_to)}"' if ARGS.sign_to else "")
     how = ("Submitting sends them to the training department"
@@ -1067,6 +1069,7 @@ signature once on the first sheet and the other two fill in to match. {how}; pri
 <form id="signform"{submit_attr} novalidate>
 <input type="hidden" name="content_version" value="{CONTENT_VERSION}">
 <input type="hidden" name="track" value="">
+<input type="hidden" name="trainer_date_p1" value="">
 
 <div class="sheet">{band}
 <h2>Annual Training</h2><p class="sub">Certificate of Training &nbsp;\u00b7&nbsp; Total Hours: 22.5</p>
