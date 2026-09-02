@@ -95,6 +95,7 @@ FACPR_OBJECTIVES = [
     ("CPR Adult", ["2 minutes/5 sets of compressions & breaths with face shield", "AED Adult"]),
 ]
 TRAINER = "Jessica McKee-Snyder"
+TRAINER_SIGNATURE = "static/trainer-signature.png"   # as pre-printed on the packet
 TRAINER_DEPT = "Training Department"
 # Pages 1 and 3 of the packet say 218; page 2 says 210 (known typo). 218 is used.
 FOOTER_ADDRESS = ("218 Bridge Avenue \u00b7 Sunbury, PA 17801 \u00b7 Phone: 570.286.4982 \u00b7 "
@@ -106,10 +107,10 @@ AS_PAGES = {
     "auto-accident-form": "a form with an accident-scene diagram; the text layer reads badly",
 }
 
-# The packet says "all 15 sections"; the binder has 7. The count is dropped
-# until the training department settles it.
+# The packet says "all 15 sections"; the binder has 7. {n} is filled in by
+# build_site.py with the number of sections the site actually shows.
 ATTESTATION = (
-    "I attest that I have read and reviewed all sections of the Annual Training "
+    "I attest that I have read and reviewed all {n} sections of the Annual Training "
     "Binder. I understand the material covered and acknowledge my responsibility to "
     "apply this training in my daily work supporting the people served by Shared "
     "Support, Inc. I certify that I have completed the Shared Support, Inc. training "
@@ -121,7 +122,7 @@ ATTESTATION = (
 # With no endpoint configured, the sign page opens the staff member's own mail
 # app with the three sheets filled in and addressed here, so the email itself
 # says who sent it. Change this one line to redirect submissions.
-SIGN_TO = "rwilliams@sharedsupport.org"
+SIGN_TO = "TrainingDept@sharedsupport.org"
 
 # Display-level title fixes for filename artifacts. Same rule as CORRECTIONS
 # in the extractor: the source file still carries the old name, so each entry

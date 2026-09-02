@@ -205,14 +205,17 @@ only while the repo is private, and the branch must be deleted straight after.
 The header, navigation, and signature sheets use `static/logo.png` (white on
 transparent) on the maroon band when it exists. The sign page reproduces the three
 packet pages (certificate with the full topic list, Fire Safety, FA/CPR cover) with the
-wording in `training_config.py`; the trainer's name is typed, never a signature image,
-because the site is public. Fire Safety's date follows Day 1 and FA/CPR's follows Day 3
-until edited. Each section shows one print link, preferring the "Easy Print" file.
+wording in `training_config.py`, including the trainer's pre-printed signature
+(`static/trainer-signature.png`, lifted from the packet at the training department's
+request). The attestation states the real section count. Name, dates, and signature are
+typed once on the first sheet and cascade to the other two until edited. Each section
+shows one print link, preferring the "Easy Print" file. Under 860px the navigation is a
+left drawer behind a hamburger button in a maroon top bar.
 
 Palette and section colors are lifted from the printed binder — the maroon and gold of the
 wordmark, and the actual tab colors, so the web nav maps to the tabs staff recognize. Body
-type is a Minion-adjacent serif because the source is set in Minion Pro. The rail collapses
-to a bottom sheet under 860px; a lot of this audience reads on a phone mid-shift.
+type is a Minion-adjacent serif because the source is set in Minion Pro. Under 860px the rail
+becomes a drawer behind a hamburger button; a lot of this audience reads on a phone mid-shift.
 
 No binder page numbers anywhere — navigation is section and document. The corpus contains
 one page cross-reference ("see page 1 of this policy") and it's internal to a document.
@@ -226,7 +229,7 @@ one page cross-reference ("see page 1 of this policy") and it's internal to a do
    from the `BINDER_ZIP_URL` secret so no session or repo ever holds the PDFs.
 2. Signature submission: fill the AcroForm blanks, flatten, store, email. **Interim:**
    the sign page opens the staff member's mail app with the sheets addressed to
-   `SIGN_TO` (`training_config.py`, currently rwilliams@sharedsupport.org). No backend,
+   `SIGN_TO` (`training_config.py`, currently TrainingDept@sharedsupport.org). No backend,
    and the sender's own mailbox identifies them. `--submit-url` swaps in a POST endpoint.
 3. Videos and knowledge checks. The binder already contains fill-in worksheets (the Jane
    Smith scheduling exercise, the site checklist) — cheapest path to interactivity.
