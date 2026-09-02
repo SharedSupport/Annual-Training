@@ -215,8 +215,12 @@ transparent) on the maroon band when it exists. The sign page reproduces the thr
 packet pages (certificate with the full topic list, Fire Safety, FA/CPR cover) with the
 wording in `training_config.py`, including the trainer's pre-printed signature
 (`static/trainer-signature.png`, lifted from the packet at the training department's
-request). The attestation states the real section count. Name, dates, and signature are
-typed once on the first sheet and cascade to the other two until edited. Each section
+request). The attestation states the real section count. Name and dates are typed once on the
+first sheet and cascade to the other two until edited. The signature is drawn on a
+canvas (finger or mouse) with a typed-name fallback, and is copied to the other two
+sheets. The drawing rides along with a POST submission as a PNG data URL
+(`staff_signature_image`); the interim mailto path can't carry it, so the email records
+that the signature was drawn on screen and the drawing lives on the printed sheets. Each section
 shows one print link, preferring the "Easy Print" file. Under 860px the navigation is a
 left drawer behind a hamburger button in a maroon top bar.
 

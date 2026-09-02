@@ -346,6 +346,7 @@ CSS = r"""
   --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{scroll-padding-top:16px}
 body{margin:0;background:var(--page);color:var(--ink);font-family:var(--serif);
   font-size:17px;line-height:1.62;
@@ -525,6 +526,18 @@ mark{background:#F4E4C3;color:inherit}
 .sheet .trainer .line{border-bottom:1px solid var(--ink);min-width:200px;flex:1}
 .sheet .sig-line{font-family:"Segoe Script","Brush Script MT",cursive;font-size:20px;color:var(--muted)}
 .sheet .sigimg{height:30px;width:auto;vertical-align:baseline;margin:0 4px -6px}
+.sigpad{margin:8px 0 14px}
+.siglabel{font-family:var(--sans);font-size:13px;color:var(--muted);margin-bottom:6px}
+.siglabel small{font-size:12px}
+#sigcanvas{display:block;width:100%;height:150px;background:#fff;border:1.5px dashed var(--ink);border-radius:6px;touch-action:none;cursor:crosshair}
+#sigcanvas.signed{border-style:solid}
+.sigacts{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.sigacts button{background:#fff;border:1px solid var(--rule);border-radius:4px;padding:8px 12px;font-family:var(--sans);font-size:13px}
+.sigacts button:hover{border-color:var(--ink)}
+.sigcopy{min-height:56px;border-bottom:1px solid var(--ink);padding:4px 2px;margin-top:4px;display:flex;align-items:flex-end}
+.sigcopy em{color:var(--muted);font-style:italic;font-size:13px}
+.sigcopy img{height:56px;width:auto}
+.sigcopy span{font-family:"Segoe Script","Brush Script MT",cursive;font-size:23px;color:var(--ink)}
 .sheet .tdate{margin-left:auto;color:var(--muted)}.sheet .tdate b{color:var(--ink)}
 .sheet .foot{text-align:center;color:var(--muted);font-size:11px;margin-top:22px}
 .sheet .certify{text-align:center;margin:0 0 14px;font-size:15px}
@@ -742,15 +755,53 @@ JS = r"""
         :!t?'Choose Recertification or Review only (your trainer tells you which) to enable signing.'
         :api?'':'This opens the email app on your phone or computer with the sheets filled in, addressed to the training department ('+to+'). Send it from your own email address; that is how they know it came from you.';
     }
+    // ---- signature: drawn (primary) or typed (fallback), copied to the other sheets
+    var canvas=document.getElementById('sigcanvas'), cx=canvas.getContext('2d'), strokes=[], cur=null, mode='draw';
+    var typed=$n('staff_signature_typed'), typedWrap=document.getElementById('sigtyped'), sigHidden=$n('staff_signature'), sigImg=$n('staff_signature_image');
+    function fit(){var r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+      canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(150*dpr); cx.setTransform(dpr,0,0,dpr,0,0);
+      cx.lineWidth=2.2; cx.lineCap='round'; cx.lineJoin='round'; cx.strokeStyle='#1B1B2F'; redraw();}
+    function redraw(){cx.clearRect(0,0,canvas.width,canvas.height);
+      strokes.forEach(function(st){if(st.length<2){cx.beginPath();cx.arc(st[0][0],st[0][1],1.2,0,7);cx.fill();return;}
+        cx.beginPath(); cx.moveTo(st[0][0],st[0][1]); for(var i=1;i<st.length;i++) cx.lineTo(st[i][0],st[i][1]); cx.stroke();});}
+    function pos(e){var r=canvas.getBoundingClientRect(); return [e.clientX-r.left,e.clientY-r.top];}
+    canvas.addEventListener('pointerdown',function(e){if(mode!=='draw') return; e.preventDefault(); canvas.setPointerCapture(e.pointerId); cur=[pos(e)]; strokes.push(cur); redraw();});
+    canvas.addEventListener('pointermove',function(e){if(!cur) return; e.preventDefault(); cur.push(pos(e)); redraw();});
+    function up(){if(!cur) return; cur=null; canvas.classList.toggle('signed',strokes.length>0); sync();}
+    canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up); canvas.addEventListener('pointerleave',function(){if(cur) up();});
+    window.addEventListener('resize',fit); fit();
+    document.getElementById('sigclear').addEventListener('click',function(){strokes=[]; canvas.classList.remove('signed'); redraw(); sync();});
+    document.getElementById('sigtype').addEventListener('click',function(){
+      mode=mode==='draw'?'type':'draw';
+      typedWrap.hidden=mode!=='type'; canvas.parentNode.querySelector('.siglabel small').textContent=mode==='type'?'or sign in the box above':'sign in the box with your finger or mouse';
+      this.textContent=mode==='type'?'Draw it instead':'Type your name instead';
+      if(mode==='type') typed.focus(); sync();});
+    typed.addEventListener('input',sync);
+    function sigValue(){
+      if(strokes.length) return {kind:'drawn',image:canvas.toDataURL('image/png')};
+      if(typed.value.trim()) return {kind:'typed',text:typed.value.trim()};
+      return null;
+    }
+    function sync(){
+      var v=sigValue();
+      sigHidden.value=v?(v.kind==='drawn'?'drawn on screen':v.text):''; sigImg.value=v&&v.kind==='drawn'?v.image:'';
+      form.querySelectorAll('[data-sigcopy]').forEach(function(box){
+        var hid=box.parentNode.querySelector('input[type=hidden]'); hid.value=sigHidden.value;
+        box.innerHTML=!v?'<em>signed on the first sheet</em>':v.kind==='drawn'?'<img alt="Signature" src="'+v.image+'">':'<span></span>';
+        if(v&&v.kind==='typed') box.querySelector('span').textContent=v.text;
+      });
+    }
     function values(){var d={}; new FormData(form).forEach(function(v,k){d[k]=v;}); return d;}
     function mailBody(d){
       var f=FAC[d.track||'recert'];
       var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','','1. Annual Training certificate (22.5 hours)'];
-      ['employee_name','job_title','training_date_range','day1_date','day2_date','day3_date','staff_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1&&k!=='training_date_range'?fmt(d[k]):(d[k]||'')));});
-      L.push('  Attestation: agreed as printed on the sign page','  Date signed: '+fmt(d.trainer_date_p1),'','2. Fire Safety Training');
-      ['fire_employee_name','fire_training_date','fire_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
-      L.push('','3. '+f.title+' ('+f.type+')');
-      ['facpr_employee_name','facpr_date_top','facpr_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
+      var sig=d.staff_signature==='drawn on screen'?'drawn on screen by '+(d.employee_name||'')+' (the drawing is on the printed sheets)':d.staff_signature;
+      ['employee_name','job_title','training_date_range','day1_date','day2_date','day3_date'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1&&k!=='training_date_range'?fmt(d[k]):(d[k]||'')));});
+      L.push('  Staff signature: '+sig,'  Attestation: agreed as printed on the sign page','  Date signed: '+fmt(d.trainer_date_p1),'','2. Fire Safety Training');
+      ['fire_employee_name','fire_training_date'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
+      L.push('  Employee signature: same as sheet 1','','3. '+f.title+' ('+f.type+')');
+      ['facpr_employee_name','facpr_date_top'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
+      L.push('  Employee signature: same as sheet 1');
       L.push('','Sent from the digital binder, content version '+d.content_version+', '+new Date().toISOString());
       return L.join('\n');
     }
@@ -759,9 +810,10 @@ JS = r"""
     form.addEventListener('submit',function(e){
       e.preventDefault();
       if(!track){note.textContent='Choose Recertification or Review only first.'; return;}
+      if(!sigValue()){note.textContent='Sign in the box on the first sheet, or type your name.'; document.getElementById('sigpad').scrollIntoView({block:'center'}); return;}
       if(!form.checkValidity()){form.reportValidity(); note.textContent='Every field is required. Fill in the highlighted ones.'; return;}
       var data=values(); data.submitted_at=new Date().toISOString();
-      if(!api){
+      if(!api){ delete data.staff_signature_image;
         if(!to) return;
         var href='mailto:'+to+'?subject='+encodeURIComponent('Annual Training signed sheets - '+(data.employee_name||''))+
           '&body='+encodeURIComponent(mailBody(data));
@@ -1064,8 +1116,8 @@ def render_sign():
     rec = FACPR["recert"]
     body = f"""<div class="wrap" style="padding-top:34px">
 <div class="signintro"><h1 style="font-size:32px;margin:0 0 6px;font-weight:600">Sign your training sheets</h1>
-<p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you\u2019ve finished all three days. Type your name, dates and
-signature once on the first sheet and the other two fill in to match. {how}; printing gives you the same three sheets on paper.</p></div>
+<p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you\u2019ve finished all three days. Enter your name and dates
+and sign once on the first sheet; the other two sheets fill in to match. {how}; printing gives you the same three sheets on paper.</p></div>
 <form id="signform"{submit_attr} novalidate>
 <input type="hidden" name="content_version" value="{CONTENT_VERSION}">
 <input type="hidden" name="track" value="">
@@ -1084,14 +1136,22 @@ signature once on the first sheet and the other two fill in to match. {how}; pri
 <h3>DAY 2 - Annual Training</h3>{ul(CERT_TOPICS["day2"])}
 <h3>DAY 3 - In-Person Training</h3>{ul(CERT_TOPICS["day3"])}
 <h3>ATTESTATION</h3><div class="attest">{esc(ATTESTATION.format(n=len(SECTIONS)))}</div>
-{field("Staff Signature:", "staff_signature", ph="Type your full name", cls="sig")}
+<div class="sigpad" id="sigpad">
+<div class="siglabel">Staff Signature: <small>sign in the box with your finger or mouse</small></div>
+<canvas id="sigcanvas" height="150" aria-label="Signature box"></canvas>
+<div class="sigacts"><button type="button" id="sigclear">Clear</button><button type="button" id="sigtype">Type your name instead</button></div>
+<label class="field" id="sigtyped" hidden>Type your full name<input type="text" name="staff_signature_typed" class="sig" placeholder="Type your full name"></label>
+<input type="hidden" name="staff_signature" value="">
+<input type="hidden" name="staff_signature_image" value="">
+</div>
 {trainer}
 {foot}</div>
 
 <div class="sheet">{band}
 <h2>Emergency Training: Fire Safety Training</h2><p class="sub"><b>By Expert</b></p>
 <p class="certify">This is to certify that Shared Support, Inc. has conducted and completed<br>Fire Safety Training as specified below for:</p>
-<div class="row">{field("Employee Name", "fire_employee_name", extra=" data-follow='employee_name'")}{field("Employee Signature", "fire_employee_signature", ph="Type your full name", cls="sig", extra=" data-follow='staff_signature'")}</div>
+<div class="row">{field("Employee Name", "fire_employee_name", extra=" data-follow='employee_name'")}
+<div class="field">Employee Signature<div class="sigcopy" data-sigcopy><em>signed on the first sheet</em></div><input type="hidden" name="fire_employee_signature"></div></div>
 <h3>Training Date:</h3><div class="datelist"><span></span><input type="date" name="fire_training_date" required data-follow="day1_date" aria-label="Fire safety training date"></div>
 <h3>Training Topics:</h3>{ul(FIRE_TOPICS)}
 <div class="trainer"><span><b>{esc(TRAINER)}</b><br><small>Trainer\u2019s Name</small></span>
@@ -1110,7 +1170,7 @@ signature once on the first sheet and the other two fill in to match. {how}; pri
 <h3>TRAINING OBJECTIVE:</h3><p style="margin:0 0 4px 14px">Demonstrate the skills for the following:</p>{objectives}
 <div class="idbox">{field("Employee Name:", "facpr_employee_name", extra=" data-facpr disabled data-follow='employee_name'")}
 <div><b>Type:</b> &nbsp;<span class="type" id="facpr-type">{esc(rec["type"])}</span></div></div>
-{field("Employee Signature:", "facpr_employee_signature", ph="Type your full name", cls="sig", extra=" data-facpr disabled data-follow='staff_signature'")}
+<div class="field">Employee Signature:<div class="sigcopy" data-sigcopy><em>signed on the first sheet</em></div><input type="hidden" name="facpr_employee_signature"></div>
 <div class="trainer"><b>Trainer\u2019s Signature:</b>{sig}<span>{esc(TRAINER)}</span></div>
 {foot}</div>
 
