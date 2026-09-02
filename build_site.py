@@ -198,10 +198,13 @@ def join_broken_lines(html):
     lines = html.split("\n")
     out = []
     for ln in lines:
-        if (out and ln.startswith("<p>") and out[-1].startswith("<p>")
-                and not re.search(r"[.:;!?\u2026]\s*</p>$", out[-1])
-                and re.match(r"<p>[a-z(&]", ln)):
+        cont = re.match(r"<p>[a-z(&]", ln)
+        if (cont and out and out[-1].startswith("<p>")
+                and not re.search(r"[.:;!?\u2026]\s*</p>$", out[-1])):
             out[-1] = out[-1][:-4] + " " + ln[3:]
+        elif (cont and len(out) > 1 and out[-1] == "</ul>" and out[-2].startswith("<li>")
+                and not re.search(r"[.:;!?\u2026]\s*</li>$", out[-2])):
+            out[-2] = out[-2][:-5] + " " + ln[3:-4] + "</li>"   # bullet wrapped past its list
         else:
             out.append(ln)
     return "\n".join(out)
@@ -389,6 +392,14 @@ article td,article th{border:1px solid var(--rule);padding:6px 8px;vertical-alig
 .pager a{background:none;border:1px solid var(--rule);padding:11px 16px;font-family:var(--sans);font-size:14px;max-width:48%;text-decoration:none}
 .pager a:hover{border-color:var(--ink)}
 .pager span{flex:1}
+.pager .next-section{max-width:60%;border-left:4px solid var(--accent);background:#fff;padding:12px 16px;line-height:1.4}
+.pager .next-section small{display:block;color:var(--muted);font-size:12px;margin-bottom:3px}
+.pager .next-section b{font-size:15px}
+.fab{position:fixed;right:18px;bottom:18px;z-index:20;display:flex;align-items:center;gap:8px;
+  background:var(--maroon);color:#F6F1E6;text-decoration:none;font-family:var(--sans);font-weight:600;font-size:14px;
+  padding:12px 16px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.28)}
+.fab:hover{background:#5E0F1A}
+@media(max-width:860px){.fab{right:14px;bottom:14px;padding:12px 14px}.pager{flex-direction:column}.pager a,.pager .next-section{max-width:none}}
 .totop{display:block;margin-top:24px;font-family:var(--sans);font-size:13px;color:var(--muted)}
 
 .results{list-style:none;margin:20px 0;padding:0}
@@ -479,7 +490,7 @@ footer{font-family:var(--sans);font-size:12px;color:var(--muted);border-top:1px 
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media print{
   body{background:#fff;font-size:11pt;background-image:none}
-  .rail,.topbar,.scrim,.acts,.track,.note,.pager,.hero,.sched,.jump,.totop,footer,.skip,.signintro{display:none!important}
+  .rail,.topbar,.scrim,.acts,.track,.note,.pager,.hero,.sched,.jump,.totop,footer,.skip,.signintro,.fab{display:none!important}
   .sheet .sh{background:var(--maroon)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .shell{display:block}
   .wrap{max-width:none;padding:0}
@@ -747,6 +758,30 @@ def print_row(s):
             'department reissues it.</div>')
 
 
+def lc(t):
+    return t[:1].lower() + t[1:]
+
+
+def after_section(s):
+    """Where the last document of a section leads: the next section, with a
+    note when it closes out a day; the sign page after the last section."""
+    if not s or s["slug"] is None:
+        return None
+    idx = [x["slug"] for x in SECTIONS].index(s["slug"])
+    day = schedule_for(s["delivery"])
+    if idx + 1 < len(SECTIONS):
+        nxt = SECTIONS[idx + 1]
+        if nxt["delivery"] == s["delivery"]:
+            return {"url": nxt["url"], "title": nxt["title"], "kicker": "Next section",
+                    "color": nxt["color"]}
+        nday = schedule_for(nxt["delivery"])
+        return {"url": nxt["url"], "title": nxt["title"], "color": nxt["color"],
+                "kicker": f"That\u2019s the end of {day['label']}. Next: {nday['label']}, {lc(nday['how'])}"}
+    return {"url": url("sign"), "title": "Sign your training sheets", "color": "var(--maroon)",
+            "kicker": f"That\u2019s everything to read. {schedule_for('day3')['label']} is "
+                      f"{lc(schedule_for('day3')['how'])} with your trainer"}
+
+
 def jump_list(heads):
     """A collapsed "on this page" list: the top-level headings, plus any
     subheadings that come before the first one (a policy whose only large
@@ -802,14 +837,26 @@ def render_doc(s, d, i, stats):
         article = html
     prev = (f'<a href="{docs[i-1]["url"]}" rel="prev">&larr; {esc(docs[i-1]["title"])}</a>' if i > 0
             else f'<a href="{s["url"]}">&larr; {esc(s["title"])}</a>' if s else "<span></span>")
-    nxt = (f'<a href="{docs[i+1]["url"]}" rel="next">{esc(docs[i+1]["title"])} &rarr;</a>'
-           if i < len(docs) - 1 else "<span></span>")
+    if i < len(docs) - 1:
+        nxt_url, nxt_label = docs[i+1]["url"], docs[i+1]["title"]
+        nxt = f'<a href="{nxt_url}" rel="next">{esc(nxt_label)} &rarr;</a>'
+    else:
+        after = after_section(s)
+        if after:
+            nxt_url, nxt_label = after["url"], after["title"]
+            nxt = (f'<a class="next-section" href="{after["url"]}" rel="next" style="--accent:{after["color"]}">'
+                   f'<small>{esc(after["kicker"])}</small><b>{esc(after["title"])} &rarr;</b></a>')
+        else:
+            nxt_url = nxt_label = None
+            nxt = "<span></span>"
+    fab = (f'<a class="fab" href="{nxt_url}" aria-label="Next: {esc(nxt_label)}" title="Next: {esc(nxt_label)}">'
+           f'<span>Next</span>&rarr;</a>' if nxt_url else "")
     body = (f'<div class="wrap"><div class="sec-head"><span class="n">{crumbs}</span>'
             f'<h1>{esc(d["title"])}</h1></div><p class="docmeta">{" &middot; ".join(meta)}</p>'
             + "".join(f'<div class="notice">{esc(n)}</div>' for n in notices)
             + jump + f'<article>{article}</article>'
             + f'<div class="pager">{prev}{nxt}</div>'
-            + f'<a class="totop" href="#main">Back to top</a></div>')
+            + f'<a class="totop" href="#main">Back to top</a></div>' + fab)
     write(d["rel"] + "/index.html",
           layout(d["title"], body, s["slug"] if s else None, accent=s["color"] if s else None))
 
