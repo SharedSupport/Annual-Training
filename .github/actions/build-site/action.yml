@@ -1,0 +1,57 @@
+name: Build the digital binder
+description: >
+  Extract content from the binder zip when a download link is given (otherwise
+  recover it from the committed prototype), then render site/ with build_site.py.
+  Shared by the GitHub Pages and Azure Static Web Apps deploy workflows.
+inputs:
+  base:
+    description: URL prefix the site is served from ("/" or "/Annual-Training/")
+    default: "/"
+  binder_zip_url:
+    description: Private download link to the binder zip; empty builds from the prototype text
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+
+    - name: Install build dependencies
+      shell: bash
+      run: pip install -r requirements.txt
+
+    - name: Fetch and unpack the binder
+      if: ${{ inputs.binder_zip_url != '' }}
+      shell: bash
+      env:
+        BINDER_ZIP_URL: ${{ inputs.binder_zip_url }}
+      run: |
+        curl -fsSL -o binder.zip "$BINDER_ZIP_URL"
+        unzip -tq binder.zip >/dev/null || { echo "::error::download is not a zip; check the share is 'anyone with the link' and the link ends with the download flag"; exit 1; }
+        mkdir -p source && unzip -q binder.zip -d source
+        dir=$(find source -maxdepth 3 -type d -name "Annual Training - Paper Binder" | head -1)
+        if [ -z "$dir" ] && [ -d "source/1 - DRC Policies" ]; then dir=source; fi
+        test -n "$dir" || { echo "::error::couldn't find the binder folder in the zip"; exit 1; }
+        echo "BINDER_DIR=$dir" >> "$GITHUB_ENV"
+        echo "binder at: $dir ($(find "$dir" -name '*.pdf' | wc -l) PDFs)"
+
+    - name: Extract content
+      shell: bash
+      run: |
+        if [ -n "$BINDER_DIR" ]; then
+          python extract_binder.py "$BINDER_DIR" --out content
+        else
+          echo "::warning::no binder link given; building from the text embedded in the prototype"
+          python content_from_prototype.py
+        fi
+
+    - name: Build the site
+      shell: bash
+      run: |
+        if [ -n "$BINDER_DIR" ]; then
+          python build_site.py --source "$BINDER_DIR" --base "${{ inputs.base }}"
+        else
+          python build_site.py --base "${{ inputs.base }}"
+        fi
+        du -sh site

@@ -42,34 +42,22 @@ member's own mailbox is what says who sent it. Change `SIGN_TO`, or pass
 `--sign-to` at build time, to redirect it. Passing `--submit-url` switches the
 form to POSTing JSON to an endpoint instead.
 
-## Hosting: Azure Static Web Apps
+## Hosting
 
-`.github/workflows/azure-static-web-apps.yml` builds and deploys on every push
-to `main`. Setup:
+**GitHub Pages (current).** `.github/workflows/github-pages.yml` builds and
+publishes to https://sharedsupport.github.io/Annual-Training/ on every push to
+`main`, or on demand from the Actions tab. One-time setup: Settings > Pages >
+Build and deployment > Source: **GitHub Actions**. The build passes
+`--base /Annual-Training/` because the site lives under the repository path.
 
-1. Create a Static Web App in the Azure portal with deployment source
-   **Other** (so the portal doesn't add its own workflow), Free plan is fine.
-2. Copy its deployment token (Overview > Manage deployment token) into the
-   repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
-3. Optional but recommended: put the binder zip somewhere private the workflow
-   can download it from (a Blob container with a SAS link works) and store the
-   link in the secret `BINDER_ZIP_URL`. With it the deployed site is built from
-   the real binder; without it, from the text embedded in the prototype.
+**Azure Static Web Apps (later).** `.github/workflows/azure-static-web-apps.yml`
+does the same deploy to Azure, on demand only. It needs the app created in the
+portal with deployment source **Other**, and its deployment token stored as the
+secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. `build_site.py` already writes the
+`staticwebapp.config.json` it needs.
 
-`build_site.py` writes `staticwebapp.config.json` into `site/`, so clean URLs,
-the 404 page, and cache headers come with the build.
-
-`extract_binder.py` walks the seven numbered binder folders and writes
-`content/content.json`: a section → document tree with cleaned HTML, revision
-dates, page counts, image-only flags, print packets, and external links. It
-prints a warning for every exclusion, correction, and stale print packet — read
-that output, it's how content problems surface.
-
-`build_prototype.py` still renders the older single-file
-`training-site-prototype.html` for sharing; it's superseded by `build_site.py`.
-
-## Read first
-
-`CLAUDE.md` has the project context: why this exists, how the training actually
-runs, the no-login model, the AcroForm signature packets, extractor conventions,
-and the known content problems. `BUILD-BRIEF.md` has the longer-form findings.
+Both use `.github/actions/build-site`, which downloads the binder zip from the
+`BINDER_ZIP_URL` secret (a private link, currently Dropbox), extracts it, and
+builds. Without that secret the build falls back to the text embedded in the
+prototype and says so. To update content: replace files in the zip, then re-run
+the deploy workflow.

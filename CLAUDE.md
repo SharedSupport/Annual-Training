@@ -205,10 +205,11 @@ one page cross-reference ("see page 1 of this policy") and it's internal to a do
 
 ## Build order
 
-1. ~~Static site over `content.json`~~ — done (`build_site.py`). Hosting is Azure
-   Static Web Apps via `.github/workflows/azure-static-web-apps.yml`; it needs the
-   deployment-token secret, and the `BINDER_ZIP_URL` secret to build from the real
-   binder rather than the prototype's embedded text.
+1. ~~Static site over `content.json`~~ — done (`build_site.py`). Hosted on GitHub Pages
+   at sharedsupport.github.io/Annual-Training via `.github/workflows/github-pages.yml`
+   (Azure Static Web Apps workflow kept for later; Azure was having issues at setup
+   time). Both build through `.github/actions/build-site`, which pulls the binder zip
+   from the `BINDER_ZIP_URL` secret so no session or repo ever holds the PDFs.
 2. Signature submission: fill the AcroForm blanks, flatten, store, email. **Interim:**
    the sign page opens the staff member's mail app with the sheets addressed to
    `SIGN_TO` (`training_config.py`, currently rwilliams@sharedsupport.org). No backend,

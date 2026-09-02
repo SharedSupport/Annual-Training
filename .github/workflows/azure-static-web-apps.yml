@@ -3,20 +3,17 @@
 # Secrets to add under Settings > Secrets and variables > Actions:
 #   AZURE_STATIC_WEB_APPS_API_TOKEN  deployment token from the Static Web App's
 #                                    Overview > Manage deployment token
-#   BINDER_ZIP_URL   (optional)      a private URL (for example a Blob SAS link)
-#                                    to the "Annual Training - Paper Binder" zip.
+#   BINDER_ZIP_URL   (optional)      private download link to the binder zip.
 #                                    With it the site is built from the real
-#                                    binder: full text, print packets, PDFs and
-#                                    page images. Without it the build falls
-#                                    back to the text embedded in the prototype.
+#                                    binder; without it, from the text embedded
+#                                    in the prototype.
 #
 # Create the Static Web App in the portal with deployment source "Other" so it
-# doesn't generate its own workflow, then paste the token here.
+# doesn't generate its own workflow, then paste the token here. Runs only on
+# demand until the app exists; the site is on GitHub Pages meanwhile.
 name: Deploy to Azure Static Web Apps
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,46 +22,12 @@ permissions:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
-    env:
-      BINDER_ZIP_URL: ${{ secrets.BINDER_ZIP_URL }}
     steps:
       - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
+      - uses: ./.github/actions/build-site
         with:
-          python-version: "3.12"
-
-      - name: Install build dependencies
-        run: pip install -r requirements.txt
-
-      - name: Fetch the binder (when BINDER_ZIP_URL is set)
-        if: ${{ env.BINDER_ZIP_URL != '' }}
-        id: binder
-        run: |
-          curl -fsSL "$BINDER_ZIP_URL" -o binder.zip
-          unzip -tq binder.zip >/dev/null || { echo "::error::download is not a zip; check the share is 'anyone with the link' and ends with &download=1"; exit 1; }
-          mkdir -p source && unzip -q binder.zip -d source
-          dir=$(find source -maxdepth 3 -type d -name "Annual Training - Paper Binder" | head -1)
-          if [ -z "$dir" ] && [ -d "source/1 - DRC Policies" ]; then dir=source; fi
-          test -n "$dir" || { echo "::error::couldn't find the binder folder in the zip"; exit 1; }
-          echo "dir=$dir" >> "$GITHUB_OUTPUT"
-
-      - name: Extract content from the binder
-        if: ${{ env.BINDER_ZIP_URL != '' }}
-        run: python extract_binder.py "${{ steps.binder.outputs.dir }}" --out content
-
-      - name: Recover content from the prototype (no binder available)
-        if: ${{ env.BINDER_ZIP_URL == '' }}
-        run: python content_from_prototype.py
-
-      - name: Build the site
-        run: |
-          if [ -n "$BINDER_ZIP_URL" ]; then
-            python build_site.py --source "${{ steps.binder.outputs.dir }}"
-          else
-            python build_site.py
-          fi
-
+          base: "/"
+          binder_zip_url: ${{ secrets.BINDER_ZIP_URL }}
       - name: Deploy
         uses: Azure/static-web-apps-deploy@v1
         with:
