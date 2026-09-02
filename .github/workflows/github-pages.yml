@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Make sure Pages is enabled for this repository
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: ./.github/actions/build-site
         with:
           base: "/${{ github.event.repository.name }}/"
