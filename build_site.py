@@ -26,7 +26,8 @@ import shutil
 import unicodedata
 from pathlib import Path
 
-from training_config import (AS_PAGES, ATTESTATION, CERT_TOPICS, DELIVERY, FACPR,
+from extract_binder import CORRECTIONS, EXCLUDE
+from training_config import (AS_PAGES, ATTESTATION, CERT_TOPICS, DELIVERY, EMBEDS, FACPR,
                              FACPR_OBJECTIVES, FIRE_TOPICS, FOOTER_ADDRESS, LICENSED,
                              SCHEDULE, SIGN_TO, TITLE_FIXES, TRAINER, TRAINER_DEPT,
                              TRAINER_SIGNATURE)
@@ -242,6 +243,82 @@ def copy_pdf(rel, dest_rel):
     return url(dest_rel).rstrip("/")
 
 
+def correct_pdf(src, dest, stem):
+    """Apply the same wording corrections the site shows to the downloadable
+    PDF: blank the old phrase exactly, then write the new one on the same
+    baseline at the same size."""
+    import pymupdf
+    fixes = CORRECTIONS.get(stem, [])
+    if not fixes:
+        return False
+    doc = pymupdf.open(src)
+    done = 0
+    for page in doc:
+        todo = []
+        for old, new, _why in fixes:
+            for rect in page.search_for(old):
+                spans = [sp for b in page.get_text("dict")["blocks"] if b.get("type") == 0
+                         for ln in b["lines"] for sp in ln["spans"]
+                         if pymupdf.Rect(sp["bbox"]).intersects(rect) and len(sp["text"].strip()) > 1]
+                size = max((sp["size"] for sp in spans), default=10)
+                origin = next((sp["origin"] for sp in spans if pymupdf.Rect(sp["bbox"]).contains(rect)), None)
+                baseline = origin[1] if origin else rect.y1 - size * 0.22
+                page.add_redact_annot(rect)
+                width = pymupdf.get_text_length(new, fontname="helv", fontsize=size)
+                if width > rect.width:                  # Helvetica runs wider than most body fonts
+                    size *= rect.width / width
+                todo.append((rect.x0, baseline, new, size))
+        if todo:
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+            for x, y, text, size in todo:
+                page.insert_text((x, y), text, fontsize=size, fontname="helv")
+                done += 1
+    if done:
+        doc.save(dest, garbage=3, deflate=True)
+    doc.close()
+    return bool(done)
+
+
+def cover_page(doc, title, subtitle):
+    import pymupdf
+    page = doc.new_page(width=612, height=792)
+    page.draw_rect(pymupdf.Rect(0, 0, 612, 150), color=None, fill=(0.478, 0.082, 0.129))
+    page.draw_rect(pymupdf.Rect(0, 150, 612, 156), color=None, fill=(0.784, 0.663, 0.318))
+    if LOGO:
+        page.insert_image(pymupdf.Rect(48, 40, 228, 118), filename=str(LOGO))
+    else:
+        page.insert_text((48, 90), "SHARED SUPPORT", fontsize=22, fontname="hebo", color=(1, 1, 1))
+    page.insert_text((48, 230), "Annual Training", fontsize=30, fontname="hebo")
+    page.insert_textbox(pymupdf.Rect(48, 250, 564, 330), title, fontsize=20, fontname="helv")
+    page.insert_textbox(pymupdf.Rect(48, 340, 564, 420), subtitle, fontsize=11, fontname="helv", color=(0.35, 0.35, 0.35))
+    page.insert_text((48, 750), FOOTER_ADDRESS.replace("\u00b7", "-"), fontsize=8, fontname="helv", color=(0.4, 0.4, 0.4))
+
+
+def regenerate_packet(section, printable, dest_rel):
+    """A packet flagged for review still contains retired pages, and its
+    Community Participation pages are an older version. Rebuild it on the
+    site from the section's current individual files instead."""
+    import pymupdf
+    docs = [d for d in section["documents"]
+            if d.get("path") and str(Path(d["path"]).parent).startswith(printable["dir"])
+            and d["slug"] not in LICENSED]
+    if not docs:
+        return None
+    out = pymupdf.open()
+    cover_page(out, section["title"],
+               "Print-ready packet, assembled from the current versions of: "
+               + "; ".join(d["title"] for d in docs) + f".\nContent version {CONTENT_VERSION}, built {BUILT}.")
+    for d in docs:
+        with pymupdf.open(source_path(d["path"])) as src:
+            out.insert_pdf(src)
+    dest = OUT / dest_rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    out.save(dest, garbage=3, deflate=True)
+    pages = out.page_count
+    out.close()
+    return url(dest_rel).rstrip("/"), pages
+
+
 def render_pages(rel, dest_dir):
     """Rasterise an image-only PDF. Returns a list of (url, width, height)."""
     src = source_path(rel)
@@ -401,6 +478,8 @@ article td,article th{border:1px solid var(--rule);padding:6px 8px;vertical-alig
   color:var(--muted);font-family:var(--sans);font-size:14px;margin:0 0 22px}
 .placeholder{border:1px dashed var(--rule);background:rgba(27,27,47,.02);padding:24px;
   color:var(--muted);font-family:var(--sans);font-size:14px}
+.video{position:relative;width:100%;aspect-ratio:16/9;background:#000;margin:0 0 18px}
+.video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .pageimg{display:block;width:100%;height:auto;border:1px solid var(--rule);background:#fff;margin:0 0 14px}
 .pager{display:flex;justify-content:space-between;gap:12px;margin-top:36px;padding-top:20px;border-top:1px solid var(--rule)}
 .pager a{background:none;border:1px solid var(--rule);padding:11px 16px;font-family:var(--sans);font-size:14px;max-width:48%;text-decoration:none}
@@ -821,12 +900,15 @@ def print_row(s):
     contains retired pages) is never linked."""
     if not s["printables"]:
         return ""
-    ok = [p for p in s["printables"] if not p.get("review")]
-    ok.sort(key=lambda p: 0 if p["title"].lower().startswith("easy print") else 1)
+    ok = [p for p in s["printables"] if not p.get("review") or p.get("regenerated")]
+    # the section-wide packet (shortest folder) first, "Easy Print" before "… Packet"
+    ok.sort(key=lambda p: (len(p["dir"]), 0 if p["title"].lower().startswith("easy print") else 1))
     if ok and ok[0].get("href"):
         p = ok[0]
-        size = f", {p['size_mb']:.0f} MB" if p.get("size_mb") else ""
-        return f'<div class="printrow"><a href="{p["href"]}">Print this section (PDF{size})</a></div>'
+        mb = p.get("size_mb") or 0
+        size = f", {mb:.1f} MB" if mb < 10 else f", {mb:.0f} MB"
+        return (f'<div class="printrow"><a href="{p["href"]}" target="_blank" rel="noopener">'
+                f'Print this section (PDF{size})</a></div>')
     if ok:
         return '<div class="printrow">Print packet: not included in this build.</div>'
     return ('<div class="printrow">Print packet <span class="flag">being regenerated</span> '
@@ -883,7 +965,7 @@ def render_doc(s, d, i, stats):
         meta.append(f"Last revised {esc(d['revised'])}")
     meta.append(pages_word(d["pages"]))
     if d.get("pdf"):
-        meta.append(f'<a href="{d["pdf"]}">Download the PDF</a>')
+        meta.append(f'<a href="{d["pdf"]}" target="_blank" rel="noopener">Download the PDF</a>')
     notices = []
     if d["slug"] in LICENSED:
         notices.append(LICENSED[d["slug"]] + ("" if d.get("pages_img") else
@@ -911,6 +993,11 @@ def render_doc(s, d, i, stats):
         html, heads = prepare(d, stats)
         jump = jump_list(heads)
         article = html
+    if d["slug"] in EMBEDS:
+        v = EMBEDS[d["slug"]]
+        article = (f'<div class="video"><iframe src="{esc(v["src"])}" title="{esc(v["title"])}" '
+                   'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" '
+                   'referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe></div>' + article)
     prev = (f'<a href="{docs[i-1]["url"]}" rel="prev">&larr; {esc(docs[i-1]["title"])}</a>' if i > 0
             else f'<a href="{s["url"]}">&larr; {esc(s["title"])}</a>' if s else "<span></span>")
     if i < len(docs) - 1:
@@ -1073,6 +1160,8 @@ for s in SRC["sections"]:
                 if href:
                     d["pdf"] = href
                     STATS["pdfs"] += 1
+                    if correct_pdf(source_path(d["path"]), OUT / f"files/{s['slug']}/{fname}", Path(d["path"]).stem):
+                        WARN.append(f"applied the site's wording corrections to the PDF download of '{d['title']}'")
         docs.append(d)
     s["documents"] = docs
     for p in s["printables"]:
@@ -1081,6 +1170,15 @@ for s in SRC["sections"]:
             if p["href"]:
                 STATS["pdfs"] += 1
                 p["size_mb"] = source_path(p["path"]).stat().st_size / 1048576
+        elif SOURCE:
+            made = regenerate_packet(s, p, f"print/{s['slug']}/{Path(p['path']).stem} (regenerated).pdf")
+            if made:
+                p["href"], pages = made
+                p["regenerated"] = True
+                p["size_mb"] = (OUT / f"print/{s['slug']}/{Path(p['path']).stem} (regenerated).pdf").stat().st_size / 1048576
+                STATS["pdfs"] += 1
+                WARN.append(f"{s['title']}: rebuilt '{p['title']}' from the current files ({pages} pages); "
+                            "the binder's copy still contains the retired DCI pages")
     SECTIONS.append(s)
 
 for e in SRC.get("extras", []):

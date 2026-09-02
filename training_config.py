@@ -101,6 +101,14 @@ TRAINER_DEPT = "Training Department"
 FOOTER_ADDRESS = ("218 Bridge Avenue \u00b7 Sunbury, PA 17801 \u00b7 Phone: 570.286.4982 \u00b7 "
                   "Fax: 570.286.4984 \u00b7 www.sharedsupport.org")
 
+# Video embedded above a document's text.
+EMBEDS = {
+    "link-to-ted-talk": {
+        "title": "Disabling segregation: Dan Habib at TEDxAmoskeagMillyard",
+        "src": "https://www.youtube.com/embed/izkN5vLbnw8?si=IS6SQyYKb_jEBTMj",
+    },
+}
+
 # Documents shown as page images even though they have a text layer: forms
 # and diagrams whose extracted text reads badly. Text still feeds search.
 AS_PAGES = {

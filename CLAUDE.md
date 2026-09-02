@@ -112,7 +112,15 @@ a licensing surveyor asks for.
   Independent Trainings.
 - Print packets ("Easy Print …", "… Packet") are excluded from extraction and kept as the
   section's printable download. Any packet sitting beside an excluded file is flagged
-  for review; the site shows those as "being regenerated" and does **not** link them.
+  for review, and the build **rebuilds it** from the section's current individual files
+  (generated cover page, licensed docs left out, retired pages gone) rather than
+  linking the binder's copy. The binder's copy still needs reissuing.
+- `CORRECTIONS` are applied to the PDF download as well as the page text: the old
+  phrase is redacted and the new one written on the same baseline, shrunk to the
+  original width. Downloads and print packets open in a new tab so the reader keeps
+  their place.
+- `EMBEDS` (in `training_config.py`) puts a video above a document's text; the TED
+  talk is embedded from YouTube.
 - `NOT_CONTENT` — section cover pages, skipped without flagging the packets beside them
   (unlike `EXCLUDE`, which marks a packet as still containing retired pages).
 - `AS_PAGES` (in `training_config.py`) — documents with a text layer that still render as
