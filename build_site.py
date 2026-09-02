@@ -43,6 +43,8 @@ ap.add_argument("--sign-to", default=SIGN_TO,
                 help=f"address signed sheets are emailed to (default {SIGN_TO})")
 ap.add_argument("--image-zoom", type=float, default=1.6,
                 help="render scale for image-only pages (1.0 = 72 dpi)")
+ap.add_argument("--serve-licensed", action="store_true",
+                help="include page images of licensed material (only for a site behind sign-in)")
 ARGS = ap.parse_args()
 
 BASE = "/" + ARGS.base.strip("/") + "/" if ARGS.base.strip("/") else "/"
@@ -668,7 +670,9 @@ def render_doc(s, d, i, stats):
         meta.append(f'<a href="{d["pdf"]}">Download the PDF</a>')
     notices = []
     if d["slug"] in LICENSED:
-        notices.append(LICENSED[d["slug"]])
+        notices.append(LICENSED[d["slug"]] + ("" if d.get("pages_img") else
+                       " It isn't reproduced on this public site; use the card in your printed "
+                       "binder or ask your trainer for one."))
     if d.get("truncated"):
         notices.append("Only the first part of this document is in this build. The full text "
                        "appears once the binder is re-extracted.")
@@ -679,6 +683,8 @@ def render_doc(s, d, i, stats):
                 f'<img class="pageimg" src="{u}" width="{w}" height="{h}" loading="lazy" '
                 f'alt="{esc(d["title"])}, page {n}">'
                 for n, (u, w, h) in enumerate(d["pages_img"], 1))
+        elif d["slug"] in LICENSED:
+            article = ""
         else:
             article = (f'<div class="placeholder">Scanned handout, {pages_word(d["pages"])}. '
                        'Page images are added when the site is built from the binder folder.</div>')
@@ -792,7 +798,7 @@ for s in SRC["sections"]:
         d["url"] = url(d["rel"])
         if d.get("path"):
             fname = Path(d["path"]).name
-            if d["image_only"]:
+            if d["image_only"] and (d["slug"] not in LICENSED or ARGS.serve_licensed):
                 d["pages_img"] = render_pages(d["path"], f"pages/{s['slug']}/{d['slug']}")
                 STATS["images"] += len(d["pages_img"])
             if d["slug"] not in LICENSED:      # licensed material is never served as a file

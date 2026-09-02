@@ -73,8 +73,10 @@ TITLE_FIXES = {
     "Frequently Asked Questions - Steph": "Frequently Asked Questions",
 }
 
-# Documents that are licensed third-party material. Shown as scanned pages
-# only, never re-typeset, with a notice.
+# Documents that are licensed third-party material. Never re-typeset, never
+# offered as a download, and not reproduced at all on the public site: page
+# images appear only when build_site.py runs with --serve-licensed, for a
+# host behind sign-in.
 LICENSED = {
     "first-aid-cpr-referance-card":
         "American Red Cross reference card. Licensed material, shown as the "

@@ -185,13 +185,15 @@ Raise these with the training department; several block a truthful attestation.
 
 Eight files have no text layer (PBIS MANDT at 29 pages, the Red Cross reference card,
 Diastat, Fatal 6, Fleet Enema, cover pages). These stay as page images with a download.
-The Red Cross card is licensed: page images with a notice, no download, and the PDF is
-never copied into `site/`. The TED Talk file is one line of text with a YouTube link,
+The Red Cross card is licensed: on the public site it's a notice only (no images, no
+download, the PDF is never copied into `site/`); `--serve-licensed` adds the page images
+for a host behind sign-in. **The repo is public**, so never push the binder PDFs to a
+branch; the `binder-source` branch was deleted for that reason. The TED Talk file is one line of text with a YouTube link,
 so it renders as a link rather than a scan.
 
-The binder folders are available to a session from the `binder-source` branch (pushed
-by the extract workflow's `publish_source` option; `git archive origin/binder-source |
-tar -x` puts them under `source/`). Delete that branch when it's no longer needed.
+A session that needs the PDFs can get them from the extract workflow's `publish_source`
+option (`git archive origin/binder-source | tar -x` puts them under `source/`), but
+only while the repo is private, and the branch must be deleted straight after.
 
 ## Design
 
