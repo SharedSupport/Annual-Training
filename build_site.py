@@ -55,8 +55,8 @@ BUILT = dt.date.today().isoformat()
 WARN = list(SRC.get("warnings", []))
 
 # Paragraphs longer than this are split at sentence boundaries for display.
-# Purely a readability measure for content extracted before the extractor
-# learned block-level paragraphs; wording is untouched.
+# Purely a readability measure for text blocks the PDF never broke up;
+# wording is untouched.
 LONG_PARA = 1400
 PARA_TARGET = 700
 JUMP_MIN_HEADINGS = 4
@@ -130,6 +130,14 @@ def split_long_paragraphs(html, stats):
     return re.sub(r"<p>(.*?)</p>", split, html, flags=re.S)
 
 
+URL_RE = re.compile(r"(?<![\"'>])(https?://[^\s<]+?)(?=[.,;:)\]]*(?:\s|$|<))")
+
+
+def linkify(html):
+    """Bare URLs in the text become links (the TED talk page is only a URL)."""
+    return URL_RE.sub(lambda m: f'<a href="{m.group(1)}" target="_blank" rel="noopener">{m.group(1)}</a>', html)
+
+
 def add_heading_ids(html):
     """Give h2/h3 stable ids and return (html, [(level, id, text)])."""
     seen, heads = {}, []
@@ -168,6 +176,7 @@ def prepare(doc, stats):
         html = close_truncated(html)
     html = wrap_orphan_lists(html)
     html = split_long_paragraphs(html, stats)
+    html = linkify(html)
     html, heads = add_heading_ids(html)
     return html, heads
 
@@ -741,7 +750,7 @@ def render_sign():
 <div class="acts"><button class="submit" type="submit" disabled>Submit signed sheets</button>
 <button class="ghost" type="button" id="print">Print these sheets</button></div>
 <p class="note" id="signnote"></p>
-<a id="mailto-link" href="#" hidden aria-hidden="true">email</a>
+<a id="mailto-link" hidden aria-hidden="true">email</a>
 </form></div>"""
     write("sign/index.html", layout("Sign your training sheets", body, active="sign"))
 
@@ -844,8 +853,7 @@ write("staticwebapp.config.json", json.dumps({
 write(".nojekyll", "")
 
 if STATS["split"]:
-    WARN.append(f"{STATS['split']} very long paragraphs split at sentence boundaries for display "
-                "(older extractor output); re-extracting the binder removes the need")
+    WARN.append(f"{STATS['split']} very long paragraphs split at sentence boundaries for display")
 
 n_docs = sum(len(s["documents"]) for s in SECTIONS)
 n_pages = sum(1 for _ in OUT.rglob("index.html")) + 1

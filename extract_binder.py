@@ -145,6 +145,26 @@ def apply_corrections(stem, html, warnings):
 
 
 HEADING_CAPS_RE = re.compile(r"^[A-Z0-9][A-Z0-9 ,&/'’()\-]{2,78}:?$")
+# "SCOPE OF POLICY: This policy applies to..." - a run-in label on the same line
+RUNIN_RE = re.compile(r"^([A-Z][A-Z&/,'’ \-]{2,48}):\s+(\S.*)$")
+# "I.  Incident Reporting/Investigations" - a numbered section title
+ROMAN_RE = re.compile(r"^[IVX]{1,5}\.\s+[A-Z].{2,78}$")
+LONE_NUMERAL_RE = re.compile(r"^(?:[IVX]{1,5}|\d{1,2}|[A-Z])\.$")
+PAGE_NO_RE = re.compile(r"^(?:page\s+)?\d{1,3}(?:\s*(?:of|/)\s*\d{1,3})?$", re.I)
+BULLET_RE = re.compile(r"^(?:[•●▪■◦]|[–\-o]\s)\s*")
+
+
+def page_furniture(pages):
+    """Header and footer lines repeat on most pages. Find them by their text
+    with digits stripped, so '3 Revised 04/07/20' matches '4 Revised 04/07/20'."""
+    if len(pages) < 3:
+        return set()
+    seen = {}
+    for lines in pages:
+        for key in {re.sub(r"[\d\s]+", " ", l["t"]).strip().lower() for l in lines}:
+            if len(key) >= 6:
+                seen[key] = seen.get(key, 0) + 1
+    return {k for k, n in seen.items() if n >= 3 and n >= 0.4 * len(pages)}
 
 
 def extract_html(path):
@@ -157,6 +177,34 @@ def extract_html(path):
     text block instead of one paragraph per document.
     """
     doc = pymupdf.open(path)
+    pages = []            # per page: list of blocks, each a list of lines
+    for page in doc:
+        blocks = []
+        for b in page.get_text("dict")["blocks"]:
+            if b.get("type") != 0:
+                continue
+            lines = []
+            for ln in b["lines"]:
+                dx, dy = ln.get("dir", (1, 0))
+                if abs(dy) > 0.1:          # rotated furniture, not content
+                    continue
+                spans = [sp for sp in ln["spans"] if sp["text"].strip()]
+                txt = "".join(sp["text"] for sp in ln["spans"]).strip()
+                if not txt:
+                    continue
+                isbold = lambda sp: "Bold" in sp["font"] or sp.get("flags", 0) & 16
+                lines.append({
+                    "t": txt,
+                    "size": round(max(sp["size"] for sp in ln["spans"]), 1),
+                    "bold": any(isbold(sp) for sp in spans),
+                    "allbold": bool(spans) and all(isbold(sp) for sp in spans),
+                })
+            if lines:
+                blocks.append(lines)
+        if blocks:
+            pages.append(blocks)
+
+    furniture = page_furniture([[l for b in p for l in b] for p in pages])
     out = []
     total = 0
     in_list = False
@@ -172,52 +220,69 @@ def extract_html(path):
             close_list()
             out.append("<p>" + " ".join(lines) + "</p>")
 
-    for page in doc:
-        blocks = []
-        for b in page.get_text("dict")["blocks"]:
-            if b.get("type") != 0:
-                continue
-            lines = []
-            for ln in b["lines"]:
-                dx, dy = ln.get("dir", (1, 0))
-                if abs(dy) > 0.1:          # rotated furniture, not content
-                    continue
-                txt = "".join(s["text"] for s in ln["spans"]).strip()
-                if not txt:
-                    continue
-                lines.append({
-                    "t": txt,
-                    "size": round(max(s["size"] for s in ln["spans"]), 1),
-                    "bold": any("Bold" in s["font"] for s in ln["spans"]),
-                })
-            if lines:
-                blocks.append(lines)
-        if not blocks:
-            continue
+    last_h2_block = [None]
+
+    def heading(level, text, block=None):
+        close_list()
+        t = _html.escape(text)
+        # "I." on one line and "Background" on the next -> "I. Background"
+        if out and out[-1].startswith(f"<h{level}>"):
+            prev = out[-1][4:-5]
+            if level == 2 and block is not None and block is last_h2_block[0]:
+                out[-1] = f"<h2>{prev} {t}</h2>"       # a big title wrapped over lines
+                return
+            if LONE_NUMERAL_RE.match(prev):
+                out[-1] = f"<h{level}>{prev} {t}</h{level}>"
+                return
+            if text[:1].islower():          # a heading wrapped mid-word
+                joiner = "" if prev[-1:].islower() else " "
+                out[-1] = f"<h{level}>{prev}{joiner}{t}</h{level}>"
+                return
+        out.append(f"<h{level}>{t}</h{level}>")
+
+    for blocks in pages:
         flat = [l for b in blocks for l in b]
-        total += sum(len(l["t"]) for l in flat)
         body = sorted(l["size"] for l in flat)[len(flat) // 2]
 
         for lines in blocks:
             para, item = [], None      # item: an open bullet's text pieces
             for ln in lines:
-                t = _html.escape(ln["t"])
-                bullet = re.match(r"^[•●▪–\-]\s+", ln["t"]) or \
-                    re.match(r"^[•●▪]", ln["t"])
+                raw = ln["t"]
+                if PAGE_NO_RE.match(raw) or \
+                        re.sub(r"[\d\s]+", " ", raw).strip().lower() in furniture:
+                    continue
+                total += len(raw)
+                t = _html.escape(raw)
+                bullet = BULLET_RE.match(raw)
+                runin = RUNIN_RE.match(raw)
+                looks_heading = not raw.rstrip().endswith(".") and not raw[:1].islower()
                 if ln["size"] >= body * 1.55:
                     if item: out.append("<li>" + " ".join(item) + "</li>"); item = None
                     emit_para(para); para = []
-                    close_list(); out.append(f"<h2>{t}</h2>")
-                elif (ln["bold"] and len(t) < 95 and
-                      (t.rstrip().endswith(":") or ln["size"] > body * 1.05)) or \
-                     (len(lines) == 1 and HEADING_CAPS_RE.match(ln["t"]) and
-                      any(c.isalpha() for c in ln["t"])):
+                    heading(2, raw, block=lines)
+                    last_h2_block[0] = lines
+                elif (ln["bold"] and len(raw) < 95 and looks_heading and
+                      (raw.rstrip().endswith(":") or ln["size"] > body * 1.05)) or \
+                     (ln["allbold"] and len(raw) < 80 and looks_heading and
+                      len(lines) == 1) or \
+                     (len(lines) == 1 and HEADING_CAPS_RE.match(raw) and
+                      any(c.isalpha() for c in raw)) or \
+                     (ROMAN_RE.match(raw) and looks_heading) or \
+                     (LONE_NUMERAL_RE.match(raw) and ln["bold"]):
                     if item: out.append("<li>" + " ".join(item) + "</li>"); item = None
                     emit_para(para); para = []
-                    close_list(); out.append(f"<h3>{t}</h3>")
+                    heading(3, raw)
+                elif runin and not bullet:
+                    if item: out.append("<li>" + " ".join(item) + "</li>"); item = None
+                    emit_para(para); para = []
+                    rest = runin.group(2)
+                    if len(rest) <= 60 and not rest.rstrip().endswith("."):
+                        heading(3, raw)                 # "POLICY: Incident Management"
+                    else:
+                        heading(3, runin.group(1) + ":")
+                        para.append(_html.escape(rest))
                 elif bullet:
-                    text = t[bullet.end():].strip() if bullet.end() <= len(t) else ""
-                    text = text.lstrip("•●▪ ").strip()
+                    text = _html.escape(raw[bullet.end():].strip())
                     if item: out.append("<li>" + " ".join(item) + "</li>")
                     emit_para(para); para = []
                     if not in_list:
@@ -281,7 +346,7 @@ def main():
                 "revised": revised,
                 "pages": pages,
                 "path": rel,
-                "image_only": chars < 200,
+                "image_only": chars < 200 and "http" not in html,
                 "html": html,
             })
 
@@ -315,7 +380,7 @@ def main():
         html, pages, chars = extract_html(f)
         extras.append({"slug": slugify(display), "title": display,
                        "pages": pages, "path": f.name,
-                       "image_only": chars < 200, "html": html})
+                       "image_only": chars < 200 and "http" not in html, "html": html})
 
     data = {"sections": sections, "extras": extras, "warnings": warnings}
     (out / "content.json").write_text(json.dumps(data, indent=2), encoding="utf-8")

@@ -6,6 +6,8 @@
 # runs extract_binder.py, does a trial build with build_site.py, and pushes
 # content/content.json plus both logs to an orphan branch called
 # `binder-content`. A session can then `git fetch origin binder-content`.
+# Tick "publish_source" to also push the PDFs themselves to `binder-source`
+# so a session can run the extractor locally; delete that branch afterwards.
 #
 # Run it from the Actions tab (Run workflow). Secret to add:
 #   BINDER_ZIP_URL   private download link to the binder zip. A SharePoint
@@ -15,6 +17,11 @@ name: Extract binder content
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_source:
+        description: "Also push the binder PDFs to the binder-source branch (temporary, for extractor work in a session)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -74,6 +81,16 @@ jobs:
           git commit -qm "Binder content extracted from source at $src_sha ($(date -u +%Y-%m-%dT%H:%MZ))"
           git push --force origin binder-content
           echo "pushed binder-content"
+
+      - name: Publish the binder PDFs to the binder-source branch
+        if: ${{ inputs.publish_source }}
+        run: |
+          git checkout --orphan binder-source
+          git rm -rfq --cached .
+          git add -f "${{ steps.binder.outputs.dir }}"
+          git commit -qm "Binder source PDFs for extractor work ($(date -u +%Y-%m-%dT%H:%MZ)) - delete this branch when done"
+          git push --force origin binder-source
+          echo "pushed binder-source"
 
       - name: Summary
         run: |
