@@ -28,9 +28,9 @@ jobs:
     env:
       BINDER_ZIP_URL: ${{ secrets.BINDER_ZIP_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 

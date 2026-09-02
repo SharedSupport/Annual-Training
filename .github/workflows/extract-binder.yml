@@ -25,9 +25,9 @@ jobs:
     env:
       BINDER_ZIP_URL: ${{ secrets.BINDER_ZIP_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -56,7 +56,9 @@ jobs:
           echo "binder at: $dir"; find "$dir" -name "*.pdf" | wc -l
 
       - name: Extract content
-        run: python extract_binder.py "${{ steps.binder.outputs.dir }}" --out content 2>&1 | tee content/extract.log
+        run: |
+          mkdir -p content
+          python extract_binder.py "${{ steps.binder.outputs.dir }}" --out content 2>&1 | tee content/extract.log
 
       - name: Trial build of the site
         run: python build_site.py --source "${{ steps.binder.outputs.dir }}" 2>&1 | tee content/build.log
