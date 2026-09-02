@@ -291,6 +291,20 @@ button{font:inherit;cursor:pointer}
 .search{padding:12px 20px 4px}
 .search input{width:100%;padding:8px 10px;border:1px solid var(--rule);background:#fff;
   font-family:var(--sans);font-size:14px;color:var(--ink)}
+.suggest{position:absolute;left:0;right:0;top:100%;margin:2px 0 0;padding:4px 0;list-style:none;background:#fff;
+  border:1px solid var(--rule);box-shadow:0 8px 24px rgba(27,27,47,.18);z-index:40;max-height:60vh;overflow:auto;text-align:left}
+.suggest li a{display:block;padding:8px 12px;text-decoration:none;color:var(--ink);font-family:var(--sans);font-size:13.5px;line-height:1.35}
+.suggest li a b{display:block;font-weight:600}
+.suggest li a span{display:block;color:var(--muted);font-size:12px}
+.suggest li.head a b::before{content:"\00a7\00a0";color:var(--muted)}
+.suggest li.body a b{font-weight:500}
+.suggest li.body a span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rail .suggest li a{padding:7px 12px;font-size:13px}
+.suggest li.all a{color:var(--maroon);font-weight:600;border-top:1px solid var(--rule);margin-top:4px}
+.suggest li.active a,.suggest li a:hover{background:rgba(27,27,47,.06)}
+.search{position:relative}
+.hero form{position:relative}
+.hero .suggest{color:var(--ink)}
 .grp{padding:13px 0 3px}
 .grplab{font-family:var(--sans);font-size:11.5px;color:var(--muted);
   padding:0 20px 6px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
@@ -479,7 +493,6 @@ footer{font-family:var(--sans);font-size:12px;color:var(--muted);border-top:1px 
   .rail{position:fixed;top:0;bottom:0;left:0;width:min(84vw,320px);height:100vh;z-index:32;background:#fff;
     transform:translateX(-102%);transition:transform .25s;box-shadow:4px 0 24px rgba(0,0,0,.25)}
   .rail.open{transform:translateX(0)}
-  .brand.logo{margin-top:-22px}
   .scrim.open{display:block;position:fixed;inset:0;background:rgba(27,27,47,.45);z-index:31}
   .hero{padding-top:36px}
   .hero .logo{display:none}
@@ -512,6 +525,71 @@ JS = r"""
     scrim.addEventListener('click',function(){setOpen(false);});
     document.addEventListener('keydown',function(e){if(e.key==='Escape') setOpen(false);});}
 
+  // ---- suggestions while typing
+  var IDX=null, idxLoading=null;
+  function loadIndex(url){
+    if(IDX) return Promise.resolve(IDX);
+    if(!idxLoading) idxLoading=fetch(url).then(function(r){return r.json();}).then(function(d){IDX=d;return d;});
+    return idxLoading;
+  }
+  function stripTags(s){return String(s).replace(/<[^>]+>/g,'');}
+  function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  document.querySelectorAll('input[data-suggest]').forEach(function(input){
+    var form=input.form, list=document.createElement('ul');
+    list.className='suggest'; list.setAttribute('role','listbox'); list.hidden=true;
+    form.style.position='relative'; form.appendChild(list);
+    var items=[], active=-1;
+    function hide(){list.hidden=true; active=-1; input.setAttribute('aria-expanded','false');}
+    function render(q){
+      var terms=q.toLowerCase().trim(); if(terms.length<2||!IDX){hide();return;}
+      var words=terms.split(/\s+/), out=[];
+      var res=words.map(function(w){return new RegExp('(^|[^a-z0-9])'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i');});
+      function hit(text){return res.every(function(r){return r.test(text);});}   // word-start matches: "ext" finds extinguisher, not "next"
+      IDX.forEach(function(d){
+        if(hit(d.t)) out.push({k:'doc',label:d.t,sub:d.s,u:d.u,score:d.t.toLowerCase().indexOf(words[0])===0?0:1});
+      });
+      IDX.forEach(function(d){
+        d.h.forEach(function(h){var text=stripTags(h[0]);
+          if(hit(text)&&text.toLowerCase()!==d.t.toLowerCase()&&out.length<40) out.push({k:'head',label:text,sub:d.t,u:d.u+'#'+h[1],score:2});});
+      });
+      if(out.length<4){
+        var phrase=new RegExp('(^|[^a-z0-9])'+words.map(function(w){return w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}).join('[^a-z0-9]+'),'i');
+        IDX.forEach(function(d){
+          if(!d.b||!hit(d.b)) return;
+          var m=phrase.exec(d.b), i=m?m.index+m[1].length:d.b.search(res[0]);
+          if(i<0) return;
+          var a=Math.max(0,i-40), z=Math.min(d.b.length,i+70);
+          out.push({k:'body',label:d.t,sub:(a>0?'\u2026':'')+d.b.slice(a,z)+(z<d.b.length?'\u2026':''),u:d.u,score:m?3:4});
+        });
+      }
+      out.sort(function(a,b){return a.score-b.score;});
+      items=out.slice(0,8);
+      items.push({k:'all',label:'See all results for \u201c'+q+'\u201d',u:form.action+'?q='+encodeURIComponent(q)});
+      list.innerHTML=items.map(function(it,i){
+        return '<li role="option" id="'+input.id+'-s'+i+'" class="'+it.k+'"><a href="'+it.u+'"><b>'+escH(it.label)+'</b>'+(it.sub?'<span>'+escH(it.sub)+'</span>':'')+'</a></li>';
+      }).join('');
+      list.hidden=false; active=-1; input.setAttribute('aria-expanded','true');
+    }
+    function setActive(i){
+      var lis=list.querySelectorAll('li'); if(!lis.length) return;
+      active=(i+lis.length)%lis.length;
+      lis.forEach(function(li,j){li.classList.toggle('active',j===active);});
+      input.setAttribute('aria-activedescendant',lis[active].id);
+    }
+    input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-expanded','false');
+    input.addEventListener('focus',function(){loadIndex(input.dataset.suggest).then(function(){if(input.value) render(input.value);});});
+    input.addEventListener('input',function(){loadIndex(input.dataset.suggest).then(function(){render(input.value);});});
+    input.addEventListener('keydown',function(e){
+      if(list.hidden) return;
+      if(e.key==='ArrowDown'){e.preventDefault(); setActive(active+1);}
+      else if(e.key==='ArrowUp'){e.preventDefault(); setActive(active-1);}
+      else if(e.key==='Enter'&&active>-1){e.preventDefault(); location.href=items[active].u;}
+      else if(e.key==='Escape'){hide();}
+    });
+    input.addEventListener('blur',function(){setTimeout(hide,150);});
+    list.addEventListener('mousedown',function(e){e.preventDefault();});   // keep focus until the click lands
+  });
+
   // ---- search
   var box=document.getElementById('results');
   if(box){
@@ -525,7 +603,7 @@ JS = r"""
       var terms=q.toLowerCase().split(/\s+/).filter(Boolean);
       var hits=[];
       idx.forEach(function(d){
-        var t=d.t.toLowerCase(), h=d.h.toLowerCase(), b=d.b.toLowerCase(), score=0, first=-1;
+        var t=d.t.toLowerCase(), h=d.h.map(function(x){return x[0];}).join(' ').toLowerCase(), b=d.b.toLowerCase(), score=0, first=-1;
         terms.forEach(function(w){
           if(t.indexOf(w)>-1) score+=12;
           if(h.indexOf(w)>-1) score+=5;
@@ -627,13 +705,11 @@ def schedule_for(key):
 
 
 def rail(active_slug=None, active="sec"):
-    brand = (f'<a class="brand logo" href="{url()}"><img src="{url("assets", "logo.png").rstrip("/")}" alt="Shared Support">'
-             f'<span>Annual Training</span></a>' if LOGO else
-             f'<a class="brand" href="{url()}"><b>Shared Support</b><span>Annual Training</span></a>')
+    brand = f'<a class="brand" href="{url()}"><b>Shared Support</b><span>Annual Training</span></a>'
     parts = [brand,
-             f'<form class="search" role="search" action="{url("search")}"><label class="visually-hidden" for="rs" '
-             'style="position:absolute;left:-999px">Search a policy</label>'
-             '<input id="rs" type="search" name="q" placeholder="Search a policy"></form>']
+             f'<form class="search" role="search" action="{url("search")}" autocomplete="off"><label for="rs" '
+             'style="position:absolute;left:-999px">Search</label>'
+             f'<input id="rs" type="search" name="q" placeholder="Search" data-suggest="{url("search-index.json").rstrip("/")}"></form>']
     for st in SCHEDULE:
         secs = [s for s in SECTIONS if s["delivery"] == st["key"]]
         parts.append(f'<div class="grp"><div class="grplab"><b>{esc(st["label"])}</b><em>{esc(st["how"])}</em></div>')
@@ -710,8 +786,8 @@ def render_home():
            else '<span class="org">Shared Support</span>')
     body = (f'<header class="hero"><div class="wrap">{org}'
             f'<h1>Annual Training</h1><span class="band">Digital Binder</span>'
-            f'<form role="search" action="{url("search")}"><input type="search" name="q" '
-            f'placeholder="Search a policy" aria-label="Search a policy"><button>Search</button></form>'
+            f'<form role="search" action="{url("search")}" autocomplete="off"><input type="search" name="q" '
+            f'placeholder="Search" aria-label="Search" data-suggest="{url("search-index.json").rstrip("/")}"><button>Search</button></form>'
             f'</div></header><div class="wrap"><div class="sched"><h2>How your training runs</h2>'
             + "".join(steps) + '</div>'
             '<div class="printrow">Need paper? Every section lists its print-ready packet on its page.</div>'
@@ -863,8 +939,8 @@ def render_doc(s, d, i, stats):
 
 def render_search():
     body = (f'<div class="wrap"><div class="sec-head"><span class="n">Search</span><h1>Search the binder</h1></div>'
-            f'<form role="search" action="{url("search")}" class="hero" style="background:none;padding:0;margin:0 0 10px">'
-            f'<input id="q" type="search" name="q" aria-label="Search" style="border:1px solid var(--rule)">'
+            f'<form role="search" action="{url("search")}" class="hero" style="background:none;padding:0;margin:0 0 10px;border:0" autocomplete="off">'
+            f'<input id="q" type="search" name="q" aria-label="Search" placeholder="Search" style="border:1px solid var(--rule)" data-suggest="{url("search-index.json").rstrip("/")}">'
             f'<button style="background:var(--ink);color:#fff">Search</button></form>'
             f'<p class="docmeta" id="status">Loading…</p>'
             f'<ul class="results" id="results" data-index="{url("search-index.json").rstrip("/")}"></ul>'
@@ -1039,9 +1115,9 @@ for s in SECTIONS:
         if not d["image_only"]:
             html, heads = prepare(d, {"split": 0})
             INDEX.append({"t": d["title"], "s": s["title"], "u": d["url"],
-                          "h": " | ".join(h[2] for h in heads), "b": plain_text(html)})
+                          "h": [[h[2], h[1]] for h in heads], "b": plain_text(html)})
         else:
-            INDEX.append({"t": d["title"], "s": s["title"], "u": d["url"], "h": "",
+            INDEX.append({"t": d["title"], "s": s["title"], "u": d["url"], "h": [],
                           "b": f"Scanned handout, {pages_word(d['pages'])}."})
 
 extra_sec = {"slug": None, "title": "Also in the binder", "url": url(), "color": None,
@@ -1050,7 +1126,7 @@ for i, e in enumerate(EXTRAS):
     render_doc(extra_sec, e, i, STATS)
     html, heads = prepare(e, {"split": 0})
     INDEX.append({"t": e["title"], "s": "Also in the binder", "u": e["url"],
-                  "h": " | ".join(h[2] for h in heads), "b": plain_text(html)})
+                  "h": [[h[2], h[1]] for h in heads], "b": plain_text(html)})
 
 write("search-index.json", json.dumps(INDEX, ensure_ascii=False))
 write("staticwebapp.config.json", json.dumps({
