@@ -1,0 +1,6 @@
+content/
+site/
+source/*
+!source/README.md
+*.pyc
+__pycache__/
