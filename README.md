@@ -32,6 +32,33 @@ to work on the site; use the binder for anything staff will read.
 
 To serve it locally: `cd site && python -m http.server 8000`.
 
+## Signed sheets
+
+Until the fill-and-flatten submission endpoint exists, the sign page emails the
+three sheets: "Email your signed sheets" opens the staff member's own mail app
+with the sheets filled in, addressed to `SIGN_TO` in `training_config.py`
+(currently rwilliams@sharedsupport.org). The email arriving from the staff
+member's own mailbox is what says who sent it. Change `SIGN_TO`, or pass
+`--sign-to` at build time, to redirect it. Passing `--submit-url` switches the
+form to POSTing JSON to an endpoint instead.
+
+## Hosting: Azure Static Web Apps
+
+`.github/workflows/azure-static-web-apps.yml` builds and deploys on every push
+to `main`. Setup:
+
+1. Create a Static Web App in the Azure portal with deployment source
+   **Other** (so the portal doesn't add its own workflow), Free plan is fine.
+2. Copy its deployment token (Overview > Manage deployment token) into the
+   repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
+3. Optional but recommended: put the binder zip somewhere private the workflow
+   can download it from (a Blob container with a SAS link works) and store the
+   link in the secret `BINDER_ZIP_URL`. With it the deployed site is built from
+   the real binder; without it, from the text embedded in the prototype.
+
+`build_site.py` writes `staticwebapp.config.json` into `site/`, so clean URLs,
+the 404 page, and cache headers come with the build.
+
 `extract_binder.py` walks the seven numbered binder folders and writes
 `content/content.json`: a section → document tree with cleaned HTML, revision
 dates, page counts, image-only flags, print packets, and external links. It

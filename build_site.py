@@ -27,7 +27,7 @@ import unicodedata
 from pathlib import Path
 
 from training_config import (ATTESTATION, DELIVERY, FIRE_TOPICS, LICENSED,
-                             SCHEDULE, TITLE_FIXES)
+                             SCHEDULE, SIGN_TO, TITLE_FIXES)
 
 ap = argparse.ArgumentParser(description=__doc__,
                              formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -37,7 +37,10 @@ ap.add_argument("--source", default=None,
                 help="the 'Annual Training - Paper Binder' folder, for PDFs and page images")
 ap.add_argument("--base", default="/", help="URL prefix the site is served from")
 ap.add_argument("--submit-url", default="",
-                help="endpoint the signature form POSTs to; empty leaves submission off")
+                help="endpoint the signature form POSTs to; without one the form emails "
+                     "the sheets to --sign-to from the staff member's own mail app")
+ap.add_argument("--sign-to", default=SIGN_TO,
+                help=f"address signed sheets are emailed to (default {SIGN_TO})")
 ap.add_argument("--image-zoom", type=float, default=1.6,
                 help="render scale for image-only pages (1.0 = 72 dpi)")
 ARGS = ap.parse_args()
@@ -449,24 +452,51 @@ JS = r"""
   var form=document.getElementById('signform');
   if(form){
     var track=null, note=document.getElementById('signnote'), submit=form.querySelector('.submit');
-    var facpr=form.querySelectorAll('[data-facpr]');
+    var facpr=form.querySelectorAll('[data-facpr]'), api=form.dataset.submit, to=form.dataset.mailto;
+    var LABELS={employee_name:'Employee name',job_title:'Job title',day1_date:'Day 1 date',day2_date:'Day 2 date',
+      day3_date:'Day 3 date',staff_signature:'Staff signature',fire_employee_name:'Employee name',
+      fire_training_date:'Training date',fire_employee_signature:'Employee signature',
+      facpr_employee_name:'Employee name',facpr_date_top:'Date',facpr_employee_signature:'Employee signature'};
     function setTrack(t){track=t;
       form.querySelectorAll('[data-track]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.track===t);});
       facpr.forEach(function(el){el.disabled=!t;});
       form.querySelector('[name=track]').value=t||'';
       var hours=t==='recert'?'2.75':'2.0';
       document.getElementById('facpr-hours').textContent=t?('FA/CPR/AED '+(t==='recert'?'Recertification':'Review')+' · '+hours+' hours'):'Your trainer tells you which of these applies to you';
-      submit.disabled=!(t&&form.dataset.submit);
-      note.textContent=form.dataset.submit?(t?'':'Pick a First Aid option to enable signing.'):'Submission is not switched on for this build. Print the sheets and hand them in, or sign them on the paper copy.';
+      submit.disabled=!(t&&(api||to));
+      submit.textContent=api?'Submit signed sheets':'Email your signed sheets';
+      note.textContent=!(api||to)?'Submission is not switched on for this build. Print the sheets and hand them in.'
+        :!t?'Pick a First Aid option to enable signing.'
+        :api?'':'This opens your email app with the sheets filled in, addressed to the training department ('+to+'). Send it from your own work email so they know it came from you.';
+    }
+    function values(){var d={}; new FormData(form).forEach(function(v,k){d[k]=v;}); return d;}
+    function mailBody(d){
+      var t=d.track==='recert'?'FA/CPR/AED Recertification (2.75 hours)':'FA/CPR/AED Review (2.0 hours)';
+      var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','',
+        '1. Annual Training certificate (22.5 hours)'];
+      ['employee_name','job_title','day1_date','day2_date','day3_date','staff_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(d[k]||''));});
+      L.push('  Attestation: agreed as printed on the sign page','','2. Fire Safety Training');
+      ['fire_employee_name','fire_training_date','fire_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(d[k]||''));});
+      L.push('','3. '+t);
+      ['facpr_employee_name','facpr_date_top','facpr_employee_signature'].forEach(function(k){L.push('  '+LABELS[k]+': '+(d[k]||''));});
+      L.push('','Sent from the digital binder, content version '+d.content_version+', '+new Date().toISOString());
+      return L.join('\n');
     }
     form.querySelectorAll('[data-track]').forEach(function(b){b.addEventListener('click',function(){setTrack(b.dataset.track);});});
     document.getElementById('print').addEventListener('click',function(){window.print();});
     form.addEventListener('submit',function(e){
-      e.preventDefault(); if(!form.dataset.submit||!track) return;
-      var data={}; new FormData(form).forEach(function(v,k){data[k]=v;});
-      data.submitted_at=new Date().toISOString();
+      e.preventDefault(); if(!track) return;
+      var data=values(); data.submitted_at=new Date().toISOString();
+      if(!api){
+        if(!to) return;
+        var href='mailto:'+to+'?subject='+encodeURIComponent('Annual Training signed sheets - '+(data.employee_name||''))+
+          '&body='+encodeURIComponent(mailBody(data));
+        var a=document.getElementById('mailto-link'); a.href=href; a.click();
+        note.textContent='Your email app should have opened with the sheets filled in. Check it arrived in your sent items, or print the sheets instead.';
+        return;
+      }
       submit.disabled=true; note.textContent='Sending…';
-      fetch(form.dataset.submit,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+      fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
         .then(function(r){if(!r.ok) throw new Error(r.status); note.textContent='Sent. The training department has your signed sheets.';})
         .catch(function(){submit.disabled=false; note.textContent='That didn’t go through. Try again, or print the sheets instead.';});
     });
@@ -675,11 +705,16 @@ def render_sign():
                 f'{" class=" + chr(34) + cls + chr(34) if cls else ""}'
                 f'{" placeholder=" + chr(34) + ph + chr(34) if ph else ""}{extra}></label>')
     topics = "".join(f"<div>{esc(t)}</div>" for t in FIRE_TOPICS)
-    submit_attr = f' data-submit="{esc(ARGS.submit_url)}"' if ARGS.submit_url else ""
+    submit_attr = (f' data-submit="{esc(ARGS.submit_url)}"' if ARGS.submit_url
+                   else f' data-mailto="{esc(ARGS.sign_to)}"' if ARGS.sign_to else "")
+    how = ("Submitting sends them to the training department"
+           if ARGS.submit_url else
+           f"Sending emails them to the training department at {esc(ARGS.sign_to)} from your own mail app"
+           if ARGS.sign_to else "Print them and hand them in")
     body = f"""<div class="wrap" style="padding-top:34px">
 <h1 style="font-size:32px;margin:0 0 6px;font-weight:600">Sign your training sheets</h1>
 <p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you’ve finished all three days.
-Submitting sends them to the training department; printing gives you the same three sheets on paper.</p>
+{how}; printing gives you the same three sheets on paper.</p>
 <form id="signform"{submit_attr}>
 <input type="hidden" name="content_version" value="{CONTENT_VERSION}">
 <input type="hidden" name="track" value="">
@@ -706,6 +741,7 @@ Submitting sends them to the training department; printing gives you the same th
 <div class="acts"><button class="submit" type="submit" disabled>Submit signed sheets</button>
 <button class="ghost" type="button" id="print">Print these sheets</button></div>
 <p class="note" id="signnote"></p>
+<a id="mailto-link" href="#" hidden aria-hidden="true">email</a>
 </form></div>"""
     write("sign/index.html", layout("Sign your training sheets", body, active="sign"))
 

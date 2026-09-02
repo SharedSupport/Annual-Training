@@ -59,6 +59,12 @@ ATTESTATION = (
     "and complete satisfaction."
 )
 
+# Where signed sheets go until the fill-and-flatten submission endpoint exists.
+# With no endpoint configured, the sign page opens the staff member's own mail
+# app with the three sheets filled in and addressed here, so the email itself
+# says who sent it. Change this one line to redirect submissions.
+SIGN_TO = "rwilliams@sharedsupport.org"
+
 # Display-level title fixes for filename artifacts. Same rule as CORRECTIONS
 # in the extractor: the source file still carries the old name, so each entry
 # is a rename someone owes.

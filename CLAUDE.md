@@ -193,10 +193,14 @@ one page cross-reference ("see page 1 of this policy") and it's internal to a do
 
 ## Build order
 
-1. ~~Static site over `content.json`~~ — done (`build_site.py`). Still to wire: a host
-   (Static Web Apps or GitHub Pages) and a build from the real binder so the print
-   packets, PDFs, and page images are present.
-2. Signature submission: fill the AcroForm blanks, flatten, store, email.
+1. ~~Static site over `content.json`~~ — done (`build_site.py`). Hosting is Azure
+   Static Web Apps via `.github/workflows/azure-static-web-apps.yml`; it needs the
+   deployment-token secret, and the `BINDER_ZIP_URL` secret to build from the real
+   binder rather than the prototype's embedded text.
+2. Signature submission: fill the AcroForm blanks, flatten, store, email. **Interim:**
+   the sign page opens the staff member's mail app with the sheets addressed to
+   `SIGN_TO` (`training_config.py`, currently rwilliams@sharedsupport.org). No backend,
+   and the sender's own mailbox identifies them. `--submit-url` swaps in a POST endpoint.
 3. Videos and knowledge checks. The binder already contains fill-in worksheets (the Jane
    Smith scheduling exercise, the site checklist) — cheapest path to interactivity.
 
