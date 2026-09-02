@@ -2,12 +2,13 @@
 # https://sharedsupport.github.io/Annual-Training/
 #
 # One-time setup: Settings > Pages > Build and deployment > Source: GitHub Actions.
+# Deploys on every push to the working branch (the repository's default) or main.
 # Secret BINDER_ZIP_URL (already set) makes the build use the real binder.
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/annual-training-content-page-ovwlxt]
   workflow_dispatch:
 
 permissions:
