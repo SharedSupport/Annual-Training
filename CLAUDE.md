@@ -159,8 +159,9 @@ a licensing surveyor asks for.
 
 Raise these with the training department; several block a truthful attestation.
 
-1. **The attestation says "all 15 sections."** There are 7. Staff can't attest to reading
-   15 sections on a site showing 7. The prototype drops the count until this is settled.
+1. **The attestation says "all 15 sections."** There are 7. The site and the packets it
+   fills in say the real count (computed at build time), but the department's own blank
+   still says 15 and should be corrected at the source.
 2. **Medication Administration has one 2-page file** ("Topics to be covered") whose text
    layer is itself broken ("- mentation of medication", "- ation on PMOF's"). The source
    PDF needs replacing; no extractor change fixes it. The section will look empty.
@@ -224,7 +225,8 @@ sheets. On send, the browser fills the training department's own blank packet
 flattens it, and hands the PDF to the mail app: shared directly on phones, downloaded
 with an "attach this file" email on desktops. A POST endpoint receives the same PDF as
 base64 in `packet_pdf`. The blank packets are in the public repo; they're the forms
-staff already receive, and the attestation on them still says "all 15 sections". Each section
+staff already receive. Their printed "all 15 sections" is rewritten to the real section
+count when the build copies them in, the same redact-and-rewrite used for CORRECTIONS. Each section
 shows one print link, preferring the "Easy Print" file. Under 860px the navigation is a
 left drawer behind a hamburger button in a maroon top bar.
 

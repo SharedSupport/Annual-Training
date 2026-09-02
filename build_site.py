@@ -243,12 +243,12 @@ def copy_pdf(rel, dest_rel):
     return url(dest_rel).rstrip("/")
 
 
-def correct_pdf(src, dest, stem):
+def correct_pdf(src, dest, stem, fixes=None):
     """Apply the same wording corrections the site shows to the downloadable
     PDF: blank the old phrase exactly, then write the new one on the same
     baseline at the same size."""
     import pymupdf
-    fixes = CORRECTIONS.get(stem, [])
+    fixes = CORRECTIONS.get(stem, []) if fixes is None else fixes
     if not fixes:
         return False
     doc = pymupdf.open(src)
@@ -1350,6 +1350,11 @@ if all(f.is_file() for f in PACKETS.values()) and PDFLIB.is_file():
     (OUT / "assets" / "packets").mkdir(parents=True, exist_ok=True)
     for t, f in PACKETS.items():
         shutil.copyfile(f, OUT / "assets" / "packets" / f.name)
+        # the packet's attestation says "all 15 sections"; the site has len(SECTIONS)
+        n = len(SECTIONS)
+        if correct_pdf(f, OUT / "assets" / "packets" / f.name, f.stem,
+                       [("all 15 sections", f"all {n} sections", "real section count")]):
+            WARN.append(f"packet {f.name}: attestation count set to {n} (blank still says 15)")
     (OUT / "assets" / "vendor").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(PDFLIB, OUT / "assets" / "vendor" / "pdf-lib.min.js")
     FILL_PACKETS = True
