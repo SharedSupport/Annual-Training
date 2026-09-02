@@ -116,6 +116,11 @@ a licensing surveyor asks for.
 - `TITLE_FIXES` and `LICENSED` (in `training_config.py`) are display-level too. Title
   fixes cover filename typos ("Referance") and a person's name in a filename; the
   licensed entry keeps the Red Cross card as page images with a notice and no download.
+- Lines that repeat on most pages (running headers, "3 Revised 04/07/20" footers, bare
+  page numbers) are dropped as page furniture. Run-in labels ("SCOPE OF POLICY:"),
+  Roman-numeral section titles, and bold single-line blocks become headings; a lone
+  numeral merges with the title on the next line; a large title wrapped over several
+  lines is one heading.
 - Text is extracted **block by block in content order**, not by sorting every line on
   the page by y. The y-sort interleaved the two columns of the Workers Comp brochure
   line by line and produced one 45,000-character paragraph for the 42-page Incident
@@ -143,8 +148,9 @@ Raise these with the training department; several block a truthful attestation.
 
 1. **The attestation says "all 15 sections."** There are 7. Staff can't attest to reading
    15 sections on a site showing 7. The prototype drops the count until this is settled.
-2. **Medication Administration has one 2-page image-only file** ("Topics to be covered").
-   There is effectively no readable med admin content. The section will look empty.
+2. **Medication Administration has one 2-page file** ("Topics to be covered") whose text
+   layer is itself broken ("- mentation of medication", "- ation on PMOF's"). The source
+   PDF needs replacing; no extractor change fixes it. The section will look empty.
 3. **The Medicaid Waiver & CP packet disagrees with its own individual files.** Its
    Community Participation section is an older version — none of the four pages match
    `Community Participation July2026.pdf`. Printing the packet hands out superseded CP
@@ -173,13 +179,19 @@ Raise these with the training department; several block a truthful attestation.
 | Incident Management & Abuse | 1 | 0 | 0 |
 | Driver's Safety | 4 | 0 | 2 |
 | Disaster Preparedness | 1 | 0 | 1 |
-| Independent Trainings | 6 | 2 | 3 |
+| Independent Trainings | 6 | 1 | 3 |
 | Alternative Routes | 12 | 4 | 2 |
 | Medication Administration | 1 | 0 | 0 |
 
-Nine files have no text layer (PBIS MANDT at 29 pages, the Red Cross reference card,
-Diastat, Fatal 6, Fleet Enema, cover pages). These stay as page images with a download —
-the Red Cross material is licensed and must not be re-typeset or served publicly.
+Eight files have no text layer (PBIS MANDT at 29 pages, the Red Cross reference card,
+Diastat, Fatal 6, Fleet Enema, cover pages). These stay as page images with a download.
+The Red Cross card is licensed: page images with a notice, no download, and the PDF is
+never copied into `site/`. The TED Talk file is one line of text with a YouTube link,
+so it renders as a link rather than a scan.
+
+The binder folders are available to a session from the `binder-source` branch (pushed
+by the extract workflow's `publish_source` option; `git archive origin/binder-source |
+tar -x` puts them under `source/`). Delete that branch when it's no longer needed.
 
 ## Design
 

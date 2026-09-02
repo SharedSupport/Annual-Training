@@ -641,13 +641,17 @@ def render_section(s):
 
 
 def jump_list(heads):
-    """A collapsed "on this page" list. Uses top-level headings alone when there
-    are enough of them, otherwise both levels minus bold lead-ins that end in a
-    colon (the extractor promotes those, but they aren't sections)."""
-    h2s = [h for h in heads if h[0] == 2]
-    picked = h2s if len(h2s) >= 3 else [h for h in heads if not h[2].rstrip().endswith(":")]
+    """A collapsed "on this page" list: the top-level headings, plus any
+    subheadings that come before the first one (a policy whose only large
+    headings are in an attached form still gets its own sections listed).
+    Sentence-case lead-ins ending in a colon and very long lines are left out."""
+    first_h2 = next((i for i, h in enumerate(heads) if h[0] == 2), len(heads))
+    picked = [h for i, h in enumerate(heads) if h[0] == 2 or i < first_h2]
+    picked = [h for h in picked
+              if len(h[2]) <= 90 and not (h[2].rstrip().endswith(":") and not h[2].isupper())]
     if len(picked) < JUMP_MIN_HEADINGS:
         return ""
+    picked = picked[:40]
     items = "".join(f'<li class="l{lvl}"><a href="#{hid}">{text}</a></li>' for lvl, hid, text in picked)
     return (f'<details class="jump"><summary>On this page <span class="ct">{len(picked)}</span></summary>'
             f'<ol>{items}</ol></details>')
@@ -791,10 +795,11 @@ for s in SRC["sections"]:
             if d["image_only"]:
                 d["pages_img"] = render_pages(d["path"], f"pages/{s['slug']}/{d['slug']}")
                 STATS["images"] += len(d["pages_img"])
-            href = copy_pdf(d["path"], f"files/{s['slug']}/{fname}")
-            if href and not (d["image_only"] and d["slug"] in LICENSED):
-                d["pdf"] = href
-                STATS["pdfs"] += 1
+            if d["slug"] not in LICENSED:      # licensed material is never served as a file
+                href = copy_pdf(d["path"], f"files/{s['slug']}/{fname}")
+                if href:
+                    d["pdf"] = href
+                    STATS["pdfs"] += 1
         docs.append(d)
     s["documents"] = docs
     for p in s["printables"]:

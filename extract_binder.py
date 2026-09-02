@@ -220,7 +220,7 @@ def extract_html(path):
             close_list()
             out.append("<p>" + " ".join(lines) + "</p>")
 
-    last_h2_block = [None]
+    last_h_block = [None]
 
     def heading(level, text, block=None):
         close_list()
@@ -228,8 +228,10 @@ def extract_html(path):
         # "I." on one line and "Background" on the next -> "I. Background"
         if out and out[-1].startswith(f"<h{level}>"):
             prev = out[-1][4:-5]
-            if level == 2 and block is not None and block is last_h2_block[0]:
-                out[-1] = f"<h2>{prev} {t}</h2>"       # a big title wrapped over lines
+            if block is not None and block is last_h_block[0] and \
+                    not prev.rstrip().endswith((":", ".", "?")) and \
+                    (level == 2 or (prev.isupper() and text.isupper())):
+                out[-1] = f"<h{level}>{prev} {t}</h{level}>"   # a title wrapped over lines
                 return
             if LONE_NUMERAL_RE.match(prev):
                 out[-1] = f"<h{level}>{prev} {t}</h{level}>"
@@ -260,7 +262,7 @@ def extract_html(path):
                     if item: out.append("<li>" + " ".join(item) + "</li>"); item = None
                     emit_para(para); para = []
                     heading(2, raw, block=lines)
-                    last_h2_block[0] = lines
+                    last_h_block[0] = lines
                 elif (ln["bold"] and len(raw) < 95 and looks_heading and
                       (raw.rstrip().endswith(":") or ln["size"] > body * 1.05)) or \
                      (ln["allbold"] and len(raw) < 80 and looks_heading and
@@ -271,7 +273,8 @@ def extract_html(path):
                      (LONE_NUMERAL_RE.match(raw) and ln["bold"]):
                     if item: out.append("<li>" + " ".join(item) + "</li>"); item = None
                     emit_para(para); para = []
-                    heading(3, raw)
+                    heading(3, raw, block=lines)
+                    last_h_block[0] = lines
                 elif runin and not bullet:
                     if item: out.append("<li>" + " ".join(item) + "</li>"); item = None
                     emit_para(para); para = []
