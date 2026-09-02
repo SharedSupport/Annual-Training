@@ -218,9 +218,13 @@ wording in `training_config.py`, including the trainer's pre-printed signature
 request). The attestation states the real section count. Name and dates are typed once on the
 first sheet and cascade to the other two until edited. The signature is drawn on a
 canvas (finger or mouse) with a typed-name fallback, and is copied to the other two
-sheets. The drawing rides along with a POST submission as a PNG data URL
-(`staff_signature_image`); the interim mailto path can't carry it, so the email records
-that the signature was drawn on screen and the drawing lives on the printed sheets. Each section
+sheets. On send, the browser fills the training department's own blank packet
+(`static/packets/…BLANK_RECERT.pdf` / `…REVIEW.pdf`, 14 named fields) with pdf-lib
+(vendored in `static/vendor/`), lays the signature over the three signature boxes,
+flattens it, and hands the PDF to the mail app: shared directly on phones, downloaded
+with an "attach this file" email on desktops. A POST endpoint receives the same PDF as
+base64 in `packet_pdf`. The blank packets are in the public repo; they're the forms
+staff already receive, and the attestation on them still says "all 15 sections". Each section
 shows one print link, preferring the "Easy Print" file. Under 860px the navigation is a
 left drawer behind a hamburger button in a maroon top bar.
 
@@ -239,10 +243,12 @@ one page cross-reference ("see page 1 of this policy") and it's internal to a do
    (Azure Static Web Apps workflow kept for later; Azure was having issues at setup
    time). Both build through `.github/actions/build-site`, which pulls the binder zip
    from the `BINDER_ZIP_URL` secret so no session or repo ever holds the PDFs.
-2. Signature submission: fill the AcroForm blanks, flatten, store, email. **Interim:**
-   the sign page opens the staff member's mail app with the sheets addressed to
-   `SIGN_TO` (`training_config.py`, currently TrainingDept@sharedsupport.org). No backend,
-   and the sender's own mailbox identifies them. `--submit-url` swaps in a POST endpoint.
+2. Signature submission: fill the AcroForm blanks, flatten, store, email. **Fill and
+   flatten happen in the browser now** (pdf-lib against the real blanks); what's left is
+   the store-and-email backend. Interim: the finished PDF goes through the staff
+   member's own mail app to `SIGN_TO` (`training_config.py`, currently
+   TrainingDept@sharedsupport.org), which also identifies the sender. `--submit-url`
+   swaps in a POST endpoint that receives the PDF as base64.
 3. Videos and knowledge checks. The binder already contains fill-in worksheets (the Jane
    Smith scheduling exercise, the site checklist) — cheapest path to interactivity.
 

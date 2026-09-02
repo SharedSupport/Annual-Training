@@ -753,7 +753,8 @@ JS = r"""
       submit.textContent=api?'Submit signed sheets':'Email your signed sheets';
       note.textContent=!(api||to)?'Submission is not switched on for this build. Print the sheets and hand them in.'
         :!t?'Choose Recertification or Review only (your trainer tells you which) to enable signing.'
-        :api?'':'This opens the email app on your phone or computer with the sheets filled in, addressed to the training department ('+to+'). Send it from your own email address; that is how they know it came from you.';
+        :api?'':(window.PDFLib?'This fills in the official packet as a PDF with your signature and hands it to your email app, addressed to the training department ('+to+'). On a phone you can share it straight to Mail; on a computer it downloads and you attach it. Send it from your own email address; that is how they know it came from you.'
+          :'This opens the email app on your phone or computer with the sheets filled in, addressed to the training department ('+to+'). Send it from your own email address; that is how they know it came from you.');
     }
     // ---- signature: drawn (primary) or typed (fallback), copied to the other sheets
     var canvas=document.getElementById('sigcanvas'), cx=canvas.getContext('2d'), strokes=[], cur=null, mode='draw';
@@ -777,8 +778,17 @@ JS = r"""
       this.textContent=mode==='type'?'Draw it instead':'Type your name instead';
       if(mode==='type') typed.focus(); sync();});
     typed.addEventListener('input',sync);
+    function inkImage(){   // export just the inked area, so the signature fills its box on the packet
+      var xs=[],ys=[]; strokes.forEach(function(st){st.forEach(function(pt){xs.push(pt[0]);ys.push(pt[1]);});});
+      var pad=6, x0=Math.max(0,Math.min.apply(null,xs)-pad), y0=Math.max(0,Math.min.apply(null,ys)-pad);
+      var x1=Math.min(canvas.clientWidth,Math.max.apply(null,xs)+pad), y1=Math.min(150,Math.max.apply(null,ys)+pad);
+      var dpr=window.devicePixelRatio||1, off=document.createElement('canvas');
+      off.width=Math.max(1,Math.round((x1-x0)*dpr)); off.height=Math.max(1,Math.round((y1-y0)*dpr));
+      off.getContext('2d').drawImage(canvas,x0*dpr,y0*dpr,off.width,off.height,0,0,off.width,off.height);
+      return off.toDataURL('image/png');
+    }
     function sigValue(){
-      if(strokes.length) return {kind:'drawn',image:canvas.toDataURL('image/png')};
+      if(strokes.length) return {kind:'drawn',image:inkImage()};
       if(typed.value.trim()) return {kind:'typed',text:typed.value.trim()};
       return null;
     }
@@ -792,6 +802,64 @@ JS = r"""
       });
     }
     function values(){var d={}; new FormData(form).forEach(function(v,k){d[k]=v;}); return d;}
+    // ---- the finished packet: the training department's own blank, filled and flattened in the browser
+    var SIG_PAGE={staff_signature:0,fire_employee_signature:1,facpr_employee_signature:2};
+    function b64(bytes){var s='',CH=0x8000; for(var i=0;i<bytes.length;i+=CH) s+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH)); return btoa(s);}
+    function buildPacket(d){
+      var key='packet'+(d.track==='review'?'Review':'Recert');
+      if(!window.PDFLib||!form.dataset[key]) return Promise.resolve(null);
+      var url=form.dataset[key], sfx='_'+d.track;
+      return fetch(url).then(function(r){return r.arrayBuffer();}).then(function(bytes){
+        return PDFLib.PDFDocument.load(bytes).then(function(doc){
+          var f=doc.getForm(), pages=doc.getPages();
+          function set(name,val){try{f.getTextField(name+sfx).setText(val||'');}catch(e){}}
+          set('employee_name',d.employee_name); set('job_title',d.job_title); set('training_date_range',d.training_date_range);
+          set('day1_date',fmt(d.day1_date)); set('day2_date',fmt(d.day2_date)); set('day3_date',fmt(d.day3_date));
+          set('trainer_date_p1',fmt(d.trainer_date_p1)); set('fire_employee_name',d.fire_employee_name);
+          set('fire_training_date',fmt(d.fire_training_date)); set('facpr_date_top',fmt(d.facpr_date_top)); set('facpr_employee_name',d.facpr_employee_name);
+          var drawn=d.staff_signature==='drawn on screen'&&sigImg.value;
+          var work=drawn?doc.embedPng(sigImg.value):Promise.resolve(null);
+          return work.then(function(png){
+            var spots=[];
+            Object.keys(SIG_PAGE).forEach(function(name){
+              var field; try{field=f.getTextField(name+sfx);}catch(e){return;}
+              if(!png){field.setText(d.staff_signature||''); return;}
+              field.setText('');
+              spots.push({r:field.acroField.getWidgets()[0].getRectangle(), page:pages[SIG_PAGE[name]]});
+            });
+            f.flatten();                       // fields become page content first…
+            spots.forEach(function(sp){        // …then the signature goes on top of the box
+              var r=sp.r, h=r.height*1.9, w=png.width/png.height*h; if(w>r.width){w=r.width; h=png.height/png.width*w;}
+              sp.page.drawImage(png,{x:r.x+2,y:r.y-2,width:w,height:h});
+            });
+            return doc.save();
+          });
+        });
+      });
+    }
+    var lastPdf=null;
+    function deliver(bytes,d){
+      var name='Annual Training signed packet - '+(d.employee_name||'staff').replace(/[^\w .-]+/g,'')+'.pdf';
+      var blob=new Blob([bytes],{type:'application/pdf'}); lastPdf={blob:blob,name:name};
+      document.getElementById('pdfdl').hidden=false;
+      var file; try{file=new File([blob],name,{type:'application/pdf'});}catch(e){}
+      if(file&&navigator.canShare&&navigator.canShare({files:[file]})){
+        return navigator.share({files:[file],title:'Annual Training signed sheets',text:'Signed Annual Training packet for '+(d.employee_name||'')+'. Please send to '+to+'.'})
+          .then(function(){note.textContent='Shared. If you sent it by email, the training department has your signed packet.';})
+          .catch(function(){downloadThenMail(d);});
+      }
+      downloadThenMail(d); return Promise.resolve();
+    }
+    function saveLast(){var a=document.createElement('a'); a.href=URL.createObjectURL(lastPdf.blob); a.download=lastPdf.name; document.body.appendChild(a); a.click(); a.remove();}
+    function downloadThenMail(d){
+      saveLast();
+      var body='Signed Annual Training packet for '+(d.employee_name||'')+'.\n\nPLEASE ATTACH the file "'+lastPdf.name+'" that was just saved to your Downloads folder, then send.\n\n'+mailBody(d);
+      var href='mailto:'+to+'?subject='+encodeURIComponent('Annual Training signed sheets - '+(d.employee_name||''))+'&body='+encodeURIComponent(body);
+      var a=document.getElementById('mailto-link'); a.href=href; setTimeout(function(){a.click();},600);
+      note.textContent='Your signed packet was saved as "'+lastPdf.name+'" and your email app is opening. Attach that file to the email before you send it.';
+    }
+    document.getElementById('pdfdl').addEventListener('click',function(){if(lastPdf) saveLast();});
+
     function mailBody(d){
       var f=FAC[d.track||'recert'];
       var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','','1. Annual Training certificate (22.5 hours)'];
@@ -813,18 +881,24 @@ JS = r"""
       if(!sigValue()){note.textContent='Sign in the box on the first sheet, or type your name.'; document.getElementById('sigpad').scrollIntoView({block:'center'}); return;}
       if(!form.checkValidity()){form.reportValidity(); note.textContent='Every field is required. Fill in the highlighted ones.'; return;}
       var data=values(); data.submitted_at=new Date().toISOString();
-      if(!api){ delete data.staff_signature_image;
-        if(!to) return;
-        var href='mailto:'+to+'?subject='+encodeURIComponent('Annual Training signed sheets - '+(data.employee_name||''))+
-          '&body='+encodeURIComponent(mailBody(data));
-        var a=document.getElementById('mailto-link'); a.href=href; a.click();
-        note.textContent='Your email app should have opened with the sheets filled in. Check it arrived in your sent items, or print the sheets instead.';
-        return;
-      }
-      submit.disabled=true; note.textContent='Sending…';
-      fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
-        .then(function(r){if(!r.ok) throw new Error(r.status); note.textContent='Sent. The training department has your signed sheets.';})
-        .catch(function(){submit.disabled=false; note.textContent='That didn’t go through. Try again, or print the sheets instead.';});
+      submit.disabled=true; note.textContent='Preparing your signed packet…';
+      buildPacket(data).then(function(bytes){
+        submit.disabled=false;
+        if(!api){
+          if(!to) return;
+          if(bytes) return deliver(bytes,data);
+          delete data.staff_signature_image;
+          var href='mailto:'+to+'?subject='+encodeURIComponent('Annual Training signed sheets - '+(data.employee_name||''))+'&body='+encodeURIComponent(mailBody(data));
+          var a=document.getElementById('mailto-link'); a.href=href; a.click();
+          note.textContent='Your email app should have opened with the sheets filled in. Check it arrived in your sent items, or print the sheets instead.';
+          return;
+        }
+        if(bytes){data.packet_pdf=b64(bytes); data.packet_filename='Annual Training signed packet - '+(data.employee_name||'staff')+'.pdf';}
+        submit.disabled=true; note.textContent='Sending…';
+        return fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+          .then(function(r){if(!r.ok) throw new Error(r.status); note.textContent='Sent. The training department has your signed sheets.';})
+          .catch(function(){submit.disabled=false; note.textContent='That didn’t go through. Try again, or print the sheets instead.';});
+      }).catch(function(err){submit.disabled=false; note.textContent='Couldn’t build the PDF ('+err+'). Print the sheets instead.';});
     });
     setTrack(null);
   }
@@ -1112,13 +1186,19 @@ def render_sign():
            if ARGS.submit_url else
            f"Sending emails them to the training department at {esc(ARGS.sign_to)} from your own email"
            if ARGS.sign_to else "Print them and hand them in")
+    if ARGS.sign_to and not ARGS.submit_url and FILL_PACKETS:
+        how = ("Sending builds your signed packet as a PDF and hands it to your email app, addressed to "
+               f"the training department at {esc(ARGS.sign_to)}")
     objectives = "".join(f'<h3 class="plain">{esc(h)}</h3>{ul(items)}' for h, items in FACPR_OBJECTIVES)
     rec = FACPR["recert"]
-    body = f"""<div class="wrap" style="padding-top:34px">
+    packet_attr = ("".join(f' data-packet-{t}="{url("assets", "packets", f.name).rstrip("/")}"' for t, f in PACKETS.items())
+                   if FILL_PACKETS else "")
+    pdflib = (f'<script src="{url("assets", "vendor", "pdf-lib.min.js").rstrip("/")}" defer></script>' if FILL_PACKETS else "")
+    body = pdflib + f"""<div class="wrap" style="padding-top:34px">
 <div class="signintro"><h1 style="font-size:32px;margin:0 0 6px;font-weight:600">Sign your training sheets</h1>
 <p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you\u2019ve finished all three days. Enter your name and dates
 and sign once on the first sheet; the other two sheets fill in to match. {how}; printing gives you the same three sheets on paper.</p></div>
-<form id="signform"{submit_attr} novalidate>
+<form id="signform"{submit_attr}{packet_attr} novalidate>
 <input type="hidden" name="content_version" value="{CONTENT_VERSION}">
 <input type="hidden" name="track" value="">
 <input type="hidden" name="trainer_date_p1" value="">
@@ -1175,6 +1255,7 @@ and sign once on the first sheet; the other two sheets fill in to match. {how}; 
 {foot}</div>
 
 <div class="acts"><button class="submit" type="submit" disabled>Submit signed sheets</button>
+<button class="ghost" type="button" id="pdfdl" hidden>Download signed PDF</button>
 <button class="ghost" type="button" id="print">Print these sheets</button></div>
 <p class="note" id="signnote"></p>
 <a id="mailto-link" hidden aria-hidden="true">email</a>
@@ -1258,11 +1339,23 @@ write("assets/site.css", CSS.strip() + "\n")
 if LOGO:
     (OUT / "assets").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(LOGO, OUT / "assets" / "logo.png")
+else:
+    WARN.append(f"no logo at {ARGS.logo}; header shows the name in text")
 if SIG:
     (OUT / "assets").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SIG, OUT / "assets" / "trainer-signature.png")
+PACKETS = {t: Path(f"static/packets/Annual_Training_Packet_BLANK_{t.upper()}.pdf") for t in ("recert", "review")}
+PDFLIB = Path("static/vendor/pdf-lib.min.js")
+if all(f.is_file() for f in PACKETS.values()) and PDFLIB.is_file():
+    (OUT / "assets" / "packets").mkdir(parents=True, exist_ok=True)
+    for t, f in PACKETS.items():
+        shutil.copyfile(f, OUT / "assets" / "packets" / f.name)
+    (OUT / "assets" / "vendor").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(PDFLIB, OUT / "assets" / "vendor" / "pdf-lib.min.js")
+    FILL_PACKETS = True
 else:
-    WARN.append(f"no logo at {ARGS.logo}; header shows the name in text")
+    FILL_PACKETS = False
+    WARN.append("blank packets or pdf-lib missing under static/; the sign page emails a text summary only")
 write("assets/site.js", JS.strip().replace("__FACPR__", json.dumps(FACPR)) + "\n")
 render_home()
 render_search()

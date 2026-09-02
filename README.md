@@ -34,13 +34,16 @@ To serve it locally: `cd site && python -m http.server 8000`.
 
 ## Signed sheets
 
-Until the fill-and-flatten submission endpoint exists, the sign page emails the
-three sheets: "Email your signed sheets" opens the staff member's own mail app
-with the sheets filled in, addressed to `SIGN_TO` in `training_config.py`
-(currently TrainingDept@sharedsupport.org). The email arriving from the staff
-member's own mailbox is what says who sent it. Change `SIGN_TO`, or pass
-`--sign-to` at build time, to redirect it. Passing `--submit-url` switches the
-form to POSTing JSON to an endpoint instead.
+The sign page fills the training department's own blank packet in the
+browser (the fillable PDFs under `static/packets/`, via the vendored pdf-lib),
+draws the staff member's signature into its boxes, flattens it, and hands the
+finished PDF to their mail app addressed to `SIGN_TO` in `training_config.py`
+(currently TrainingDept@sharedsupport.org). On phones it shares straight into
+Mail; on desktops it downloads and the email opens with an "attach this file"
+note. The email arriving from the staff member's own mailbox is what says who
+sent it. Change `SIGN_TO`, or pass `--sign-to` at build time, to redirect it.
+Passing `--submit-url` switches the form to POSTing JSON, PDF included as
+base64, to an endpoint instead.
 
 ## Hosting
 
