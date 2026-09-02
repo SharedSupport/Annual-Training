@@ -39,14 +39,19 @@ jobs:
 
       - name: Fetch the binder (when BINDER_ZIP_URL is set)
         if: ${{ env.BINDER_ZIP_URL != '' }}
+        id: binder
         run: |
           curl -fsSL "$BINDER_ZIP_URL" -o binder.zip
-          unzip -q binder.zip -d source
-          test -d "source/Annual Training - Paper Binder" || { echo "zip must contain 'Annual Training - Paper Binder/'"; exit 1; }
+          unzip -tq binder.zip >/dev/null || { echo "::error::download is not a zip; check the share is 'anyone with the link' and ends with &download=1"; exit 1; }
+          mkdir -p source && unzip -q binder.zip -d source
+          dir=$(find source -maxdepth 3 -type d -name "Annual Training - Paper Binder" | head -1)
+          if [ -z "$dir" ] && [ -d "source/1 - DRC Policies" ]; then dir=source; fi
+          test -n "$dir" || { echo "::error::couldn't find the binder folder in the zip"; exit 1; }
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
       - name: Extract content from the binder
         if: ${{ env.BINDER_ZIP_URL != '' }}
-        run: python extract_binder.py "source/Annual Training - Paper Binder" --out content
+        run: python extract_binder.py "${{ steps.binder.outputs.dir }}" --out content
 
       - name: Recover content from the prototype (no binder available)
         if: ${{ env.BINDER_ZIP_URL == '' }}
@@ -55,7 +60,7 @@ jobs:
       - name: Build the site
         run: |
           if [ -n "$BINDER_ZIP_URL" ]; then
-            python build_site.py --source "source/Annual Training - Paper Binder"
+            python build_site.py --source "${{ steps.binder.outputs.dir }}"
           else
             python build_site.py
           fi
