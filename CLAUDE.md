@@ -105,7 +105,10 @@ a licensing surveyor asks for.
   in iCM).
 - `CORRECTIONS` — wording fixed on the site because the source document is out of date.
   Each entry must match **exactly once**; zero or multiple matches warn rather than
-  silently no-op. Currently: HEAVY HITTER LIST, "DCI clock in and clock out" → "iCM".
+  silently no-op. Currently: HEAVY HITTER LIST, "DCI clock in and clock out" → "iCM";
+  and in both the HEAVY HITTER LIST and the standalone FAQ, the fleet-policy bullet's
+  "within 72 hours" → "within 24 hours" (the Fleet Safety Program says citations and
+  accidents are reported within 24 hours; 72 hours is the Defensive Driving deadline).
   **Every entry here is a source edit someone still owes** — the site and the PDF
   currently disagree. If the list grows, fix the documents instead.
 - `LINKS` — external resources per section. Currently the iCM Time & Attendance guide on
@@ -159,9 +162,12 @@ a licensing surveyor asks for.
 
 Raise these with the training department; several block a truthful attestation.
 
-1. **The attestation says "all 15 sections."** There are 7. The site and the packets it
+1. **The attestation says "all 15 sections."** There are 7. The site and the sheets it
    fills in say the real count (computed at build time), but the department's own blank
    still says 15 and should be corrected at the source.
+1a. **The FAQ's fleet bullet said 72 hours.** Corrected to 24 on the site and in the
+   downloads; the two source PDFs (HEAVY HITTER LIST, Frequently Asked Questions) still
+   say 72.
 2. **Medication Administration has one 2-page file** ("Topics to be covered") whose text
    layer is itself broken ("- mentation of medication", "- ation on PMOF's"). The source
    PDF needs replacing; no extractor change fixes it. The section will look empty.
@@ -212,17 +218,26 @@ only while the repo is private, and the branch must be deleted straight after.
 ## Design
 
 The header, navigation, and signature sheets use `static/logo.png` (white on
-transparent) on the maroon band when it exists. The sign page reproduces the three
-packet pages (certificate with the full topic list, Fire Safety, FA/CPR cover) with the
-wording in `training_config.py`, including the trainer's pre-printed signature
+transparent) on the maroon band when it exists. The sign page reproduces the certificate
+(full topic list), the Fire Safety "By Expert" page, and a one-row version of the
+department's OSHA Fire Safety sign-in sheet (`OSHA` in `training_config.py`). The
+FA/CPR Training Cover is **not** on the site: it's signed on paper on Day 3, so the
+Recert/Review track choice is gone too, and the Day 3 date is left blank for the
+trainer. Staff sign after Day 2; the trainer's date and the Training Dates range both
+read Day 1 - Day 2. Wording is in `training_config.py`, including the trainer's pre-printed signature
 (`static/trainer-signature.png`, lifted from the packet at the training department's
 request). The attestation states the real section count. Name and dates are typed once on the
 first sheet and cascade to the other two until edited. The signature is drawn on a
 canvas (finger or mouse) with a typed-name fallback, and is copied to the other two
-sheets. On send, the browser fills the training department's own blank packet
-(`static/packets/…BLANK_RECERT.pdf` / `…REVIEW.pdf`, 14 named fields) with pdf-lib
-(vendored in `static/vendor/`), lays the signature over the three signature boxes,
-flattens it, and hands the PDF to the mail app: shared directly on phones, downloaded
+sheets. At build time `build_blank_sheets()` makes
+`assets/packets/Annual_Training_Sheets_BLANK.pdf`: pages 1-2 of the RECERT blank
+(identical in REVIEW) plus a generated OSHA page with four fields (`osha_date`,
+`osha_print_name`, `osha_signature`, `osha_work_location`, all `_recert`-suffixed so
+one fill path serves). The FA/CPR page's fields are pruned from the AcroForm and the
+new fields are merged into single objects, or pdf-lib's flatten chokes. On send, the
+browser fills that blank with pdf-lib (vendored in `static/vendor/`), lays the
+signature over the three signature boxes, flattens it, and hands the PDF to the mail
+app: shared directly on phones, downloaded
 with an "attach this file" email on desktops. A POST endpoint receives the same PDF as
 base64 in `packet_pdf`. The blank packets are in the public repo; they're the forms
 staff already receive. Their printed "all 15 sections" is rewritten to the real section

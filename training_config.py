@@ -79,7 +79,18 @@ CERT_TOPICS = {
              "Review of Annual Training Materials", "Q&A Session"],
 }
 
-# Page 3 of the packet, per track. The track is set by the trainer.
+# The OSHA fire-safety sign-off (from the department's Fire Safety sign-in
+# sheet, reduced to one row since the site signs one person at a time).
+OSHA = {
+    "title": "Fire Safety / Emergency Training",
+    "hours": "1 hr",
+    "description": "See attached Fire Safety Training certificate",
+    "objectives": "See attached",
+}
+
+# Page 3 of the packet, per track. Not signed on the site any more: the
+# FA/CPR skills session is Day 3, in person, and that page is signed on
+# paper there. Kept for the fill-and-flatten backend.
 FACPR = {
     "recert": {"title": "FA/CPR/AED - Recertification (2.75 Hours)", "hours": "2.75 Hours",
                "description": "Complete Adult First Aid/CPR/AED recertification requirements.",

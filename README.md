@@ -34,9 +34,12 @@ To serve it locally: `cd site && python -m http.server 8000`.
 
 ## Signed sheets
 
-The sign page fills the training department's own blank packet in the
-browser (the fillable PDFs under `static/packets/`, via the vendored pdf-lib),
-draws the staff member's signature into its boxes, flattens it, and hands the
+The sign page covers what staff sign after Day 2: the certificate, the Fire
+Safety certificate, and a one-row OSHA fire-safety sign-in. The FA/CPR sheet is
+signed on paper on Day 3. On send the browser fills a blank built from the
+department's packet (`static/packets/`, pages 1-2) plus the generated OSHA page,
+via the vendored pdf-lib, draws the staff member's signature into its boxes,
+flattens it, and hands the
 finished PDF to their mail app addressed to `SIGN_TO` in `training_config.py`
 (currently TrainingDept@sharedsupport.org). On phones it shares straight into
 Mail; on desktops it downloads and the email opens with an "attach this file"

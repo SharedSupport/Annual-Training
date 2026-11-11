@@ -62,12 +62,18 @@ NOT_CONTENT = {
 #
 # These are display-level overrides. The underlying PDF still says the old
 # thing, so every entry here is also a source edit someone owes.
+FLEET_FIX = ("within 72 hours", "within 24 hours",
+             "Fleet Safety Program: citations and accidents are reported within 24 hours; "
+             "72 hours is the Defensive Driving deadline after a citation")
 CORRECTIONS = {
     "HEAVY HITTER LIST": [
         ("DCI clock in and clock out",
          "iCM clock in and clock out",
          "DCI is retired - time & attendance now lives in iCM"),
+        FLEET_FIX,
     ],
+    # the same FAQ text, as the standalone file at the binder root
+    "Frequently Asked Questions - Steph": [FLEET_FIX],
 }
 
 # External resources shown alongside a section's documents.
@@ -394,6 +400,7 @@ def main():
     for f in sorted(root.glob("*.pdf")):
         display, _ = parse_name(f.stem)
         html, pages, chars = extract_html(f)
+        html = apply_corrections(f.stem, html, warnings)
         extras.append({"slug": slugify(display), "title": display,
                        "pages": pages, "path": f.name,
                        "image_only": chars < 200 and "http" not in html, "html": html})

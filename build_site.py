@@ -27,8 +27,8 @@ import unicodedata
 from pathlib import Path
 
 from extract_binder import CORRECTIONS, EXCLUDE
-from training_config import (AS_PAGES, ATTESTATION, CERT_TOPICS, DELIVERY, EMBEDS, FACPR,
-                             FACPR_OBJECTIVES, FIRE_TOPICS, FOOTER_ADDRESS, LICENSED,
+from training_config import (AS_PAGES, ATTESTATION, CERT_TOPICS, DELIVERY, EMBEDS,
+                             FIRE_TOPICS, FOOTER_ADDRESS, LICENSED, OSHA,
                              SCHEDULE, SIGN_TO, TITLE_FIXES, TRAINER, TRAINER_DEPT,
                              TRAINER_SIGNATURE)
 
@@ -277,6 +277,94 @@ def correct_pdf(src, dest, stem, fixes=None):
         doc.save(dest, garbage=3, deflate=True)
     doc.close()
     return bool(done)
+
+
+def build_blank_sheets(packet, dest, n_sections):
+    """One blank for the sign page: the packet's certificate and Fire Safety
+    pages (identical across RECERT and REVIEW), then a one-row version of
+    the department's OSHA Fire Safety sign-in sheet with its own fields.
+    The FA/CPR page is signed on paper on Day 3, so it is left out."""
+    import pymupdf
+    doc = pymupdf.open(packet)
+    doc.delete_page(2)
+    # the deleted page's fields stay listed in the form; pdf-lib refuses orphans
+    keep = {w.xref for pg in doc for w in pg.widgets()}
+    af = doc.xref_get_key(doc.pdf_catalog(), "AcroForm")
+    holder, key = ((int(af[1].split()[0]), "Fields") if af[0] == "xref" else (doc.pdf_catalog(), "AcroForm/Fields"))
+    fields = doc.xref_get_key(holder, key)
+    if fields[0] == "array":
+        refs = [r for r in fields[1].strip("[]").split("R") if r.strip()]
+        kept = ["%s R" % r.strip() for r in refs if int(r.split()[0]) in keep]
+        doc.xref_set_key(holder, key, "[" + " ".join(kept) + "]")
+    # the trainer's date box takes a Day 1 - Day 2 range now: widen it
+    for w in doc[0].widgets():
+        if w.field_name.startswith("trainer_date_p1"):
+            w.rect = pymupdf.Rect(w.rect.x0, w.rect.y0, 600, w.rect.y1); w.update()
+    src = pymupdf.open(packet)
+    page = doc.new_page(width=612, height=792)
+    page.show_pdf_page(pymupdf.Rect(0, 0, 612, 78), src, 0, clip=pymupdf.Rect(0, 0, 612, 78))      # logo band
+    page.show_pdf_page(pymupdf.Rect(0, 756, 612, 792), src, 0, clip=pymupdf.Rect(0, 756, 612, 792))  # address line
+    ink, red = (0.1, 0.1, 0.18), (0.478, 0.082, 0.129)
+    page.insert_text((306 - pymupdf.get_text_length(OSHA["title"], "hebo", 16) / 2, 112), OSHA["title"], fontsize=16, fontname="hebo", color=ink)
+    sub = "Training record (OSHA sign-off)"
+    page.insert_text((306 - pymupdf.get_text_length(sub, "helv", 10) / 2, 128), sub, fontsize=10, fontname="helv", color=(0.4, 0.4, 0.4))
+    page.insert_text((48, 162), "Date:", fontsize=10, fontname="hebo", color=ink)
+    page.insert_text((430, 162), f"Total Hours: {OSHA['hours']}", fontsize=10, fontname="hebo", color=ink)
+    y = 196
+    for label, value in (("TRAINING NAME:", OSHA["title"].upper()), ("TRAINING DESCRIPTION:", OSHA["description"]),
+                         ("TRAINING OBJECTIVES:", OSHA["objectives"])):
+        page.insert_text((48, y), label, fontsize=10, fontname="hebi", color=red)
+        page.insert_text((48, y + 15), value, fontsize=10, fontname="helv", color=ink); y += 40
+    page.insert_text((48, y + 8), "SIGN IN", fontsize=12, fontname="hebo", color=ink)
+    page.draw_line((48, y + 11), (96, y + 11), color=ink, width=0.8)
+    top, mid, bot = y + 22, y + 44, y + 90
+    cols = (48, 250, 432, 564)
+    for x in cols: page.draw_line((x, top), (x, bot), color=ink, width=0.8)
+    for yy in (top, mid, bot): page.draw_line((48, yy), (564, yy), color=ink, width=0.8)
+    for x0, x1, head in zip(cols, cols[1:], ("Print Name", "Sign Name", "Work Location")):
+        page.insert_text(((x0 + x1) / 2 - pymupdf.get_text_length(head, "hebi", 11) / 2, mid - 7), head, fontsize=11, fontname="hebi", color=ink)
+    page.insert_text((54, bot - 8), "1.", fontsize=11, fontname="helv", color=ink)
+    ty = bot + 70
+    page.insert_text((48, ty), "Trainer's Signature:", fontsize=11, fontname="helv", color=ink)
+    page.draw_line((150, ty + 3), (420, ty + 3), color=ink, width=0.8)
+    for xref, *_ in src[0].get_images():            # the pre-printed trainer signature
+        pix = pymupdf.Pixmap(src, xref)
+        if 4 < pix.width / pix.height < 7:
+            page.insert_image(pymupdf.Rect(160, ty - 24, 300, ty + 2), pixmap=pix); break
+    page.insert_text((430, ty), TRAINER, fontsize=10, fontname="helv", color=ink)
+    for name, rect in (("osha_date_recert", (80, 150, 230, 165)), ("osha_print_name_recert", (70, mid + 3, 246, bot - 3)),
+                       ("osha_signature_recert", (254, mid + 3, 428, bot - 3)), ("osha_work_location_recert", (436, mid + 3, 560, bot - 3))):
+        w = pymupdf.Widget(); w.field_name = name; w.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+        w.rect = pymupdf.Rect(*rect); w.text_fontsize = 10; w.border_width = 0; page.add_widget(w)
+    # pymupdf makes each field a parent with one widget kid; pdf-lib's flatten
+    # then leaves the page pointing at the deleted kid. Merge them into single
+    # field objects, the way the packet's own fields are built.
+    af = doc.xref_get_key(doc.pdf_catalog(), "AcroForm")
+    holder, key = ((int(af[1].split()[0]), "Fields") if af[0] == "xref" else (doc.pdf_catalog(), "AcroForm/Fields"))
+    fields = doc.xref_get_key(holder, key)[1].strip("[]").split("R")
+    fields = [f.strip() for f in fields if f.strip()]
+    for w in page.widgets():
+        parent = doc.xref_get_key(w.xref, "Parent")
+        if parent[0] != "xref":
+            continue
+        px = int(parent[1].split()[0])
+        for k in ("T", "FT", "Ff", "DA"):
+            kind, v = doc.xref_get_key(px, k)
+            if kind == "null":
+                continue
+            doc.xref_set_key(w.xref, k, "(%s)" % v if kind == "string" else v)
+        doc.xref_set_key(w.xref, "Parent", "null")
+        fields = [str(w.xref) + " 0" if f.startswith(str(px) + " ") else f for f in fields]
+    doc.xref_set_key(holder, key, "[" + " ".join(f + " R" for f in fields) + "]")
+    tmp = Path(str(dest) + ".tmp.pdf")
+    doc.save(tmp, garbage=3, deflate=True)
+    doc.close(); src.close()
+    fixed = correct_pdf(tmp, dest, "sheets", [("all 15 sections", f"all {n_sections} sections", "real section count")])
+    if not fixed:
+        shutil.move(tmp, dest)
+    else:
+        tmp.unlink()
+    return fixed
 
 
 def cover_page(doc, title, subtitle):
@@ -551,7 +639,8 @@ mark{background:#F4E4C3;color:inherit}
 .field input.sig{font-family:"Segoe Script","Brush Script MT",cursive;font-size:23px}
 .field input:disabled{border-bottom-color:var(--rule)}
 .row{display:grid;gap:20px}
-@media(min-width:640px){.row{grid-template-columns:1fr 1fr}}
+@media(min-width:640px){.row{grid-template-columns:1fr 1fr}.row.three{grid-template-columns:1fr 1fr 1fr}}
+.muted-note{color:var(--muted);font-size:13px;font-style:italic}
 .track{display:flex;gap:10px;margin:8px 0 18px;flex-wrap:wrap}
 .track button{flex:1;min-width:200px;background:#fff;border:2px solid var(--ink);border-radius:6px;padding:12px 14px;
   font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink);text-align:left;display:flex;gap:10px;align-items:center;
@@ -721,13 +810,11 @@ JS = r"""
   // ---- signature sheets
   var form=document.getElementById('signform');
   if(form){
-    var track=null, note=document.getElementById('signnote'), submit=form.querySelector('.submit');
-    var facpr=form.querySelectorAll('[data-facpr]'), api=form.dataset.submit, to=form.dataset.mailto;
-    var FAC=__FACPR__;
+    var note=document.getElementById('signnote'), submit=form.querySelector('.submit');
+    var api=form.dataset.submit, to=form.dataset.mailto;
     var LABELS={employee_name:'Employee name',job_title:'Job title',training_date_range:'Training dates',day1_date:'Day 1',day2_date:'Day 2',
-      day3_date:'Day 3',staff_signature:'Staff signature',fire_employee_name:'Employee name',
-      fire_training_date:'Training date',fire_employee_signature:'Employee signature',
-      facpr_employee_name:'Employee name',facpr_date_top:'Date',facpr_employee_signature:'Employee signature'};
+      staff_signature:'Staff signature',fire_employee_name:'Employee name',fire_training_date:'Training date',
+      osha_date:'Date',osha_print_name:'Print name',osha_work_location:'Work location'};
     var $n=function(n){return form.querySelector('[name='+n+']');};
     function fmt(iso){if(!iso) return ''; var p=iso.split('-'); return p.length===3?(p[1]+'/'+p[2]+'/'+p[0]):iso;}
     // Type the name, dates and signature once: the other sheets follow until edited.
@@ -736,24 +823,16 @@ JS = r"""
       src.addEventListener('input',function(){if(!el.dataset.touched) el.value=src.value;});
       el.addEventListener('input',function(){el.dataset.touched=el.value?'1':'';});
     });
-    function range(){var a=$n('day1_date').value, z=$n('day3_date').value;
-      $n('training_date_range').value=(a||z)?(fmt(a)+(z?' - '+fmt(z):'')):'';
-      $n('trainer_date_p1').value=z; document.getElementById('trainer-date').textContent=z?fmt(z):'(Day 3 date)';}
-    $n('day1_date').addEventListener('input',range); $n('day3_date').addEventListener('input',range);
-    function setTrack(t){track=t;
-      form.querySelectorAll('[data-track]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.track===t);});
-      facpr.forEach(function(el){el.disabled=!t;});
-      $n('track').value=t||'';
-      var f=FAC[t||'recert'];
-      document.getElementById('facpr-hours').textContent=f.hours;
-      document.getElementById('facpr-title').textContent=f.title;
-      document.getElementById('facpr-desc').textContent=f.description;
-      document.getElementById('facpr-type').textContent=f.type;
-      submit.disabled=!(t&&(api||to));
+    function range(){var a=$n('day1_date').value, z=$n('day2_date').value;
+      var r=(a||z)?(fmt(a)+(z?' - '+fmt(z):'')):'';
+      $n('training_date_range').value=r; $n('trainer_date_p1').value=r;
+      document.getElementById('trainer-date').textContent=r||'(Day 1 to Day 2)';}
+    $n('day1_date').addEventListener('input',range); $n('day2_date').addEventListener('input',range);
+    function setup(){
+      submit.disabled=!(api||to);
       submit.textContent=api?'Submit signed sheets':'Email your signed sheets';
       note.textContent=!(api||to)?'Submission is not switched on for this build. Print the sheets and hand them in.'
-        :!t?'Choose Recertification or Review only (your trainer tells you which) to enable signing.'
-        :api?'':(window.PDFLib?'This fills in the official packet as a PDF with your signature and hands it to your email app, addressed to the training department ('+to+'). On a phone you can share it straight to Mail; on a computer it downloads and you attach it. Send it from your own email address; that is how they know it came from you.'
+        :api?'':(window.PDFLib?'This fills in the official sheets as a PDF with your signature and hands it to your email app, addressed to the training department ('+to+'). On a phone you can share it straight to Mail; on a computer it downloads and you attach it. Send it from your own email address; that is how they know it came from you.'
           :'This opens the email app on your phone or computer with the sheets filled in, addressed to the training department ('+to+'). Send it from your own email address; that is how they know it came from you.');
     }
     // ---- signature: drawn (primary) or typed (fallback), copied to the other sheets
@@ -803,20 +882,20 @@ JS = r"""
     }
     function values(){var d={}; new FormData(form).forEach(function(v,k){d[k]=v;}); return d;}
     // ---- the finished packet: the training department's own blank, filled and flattened in the browser
-    var SIG_PAGE={staff_signature:0,fire_employee_signature:1,facpr_employee_signature:2};
+    var SIG_PAGE={staff_signature:0,fire_employee_signature:1,osha_signature:2};
     function b64(bytes){var s='',CH=0x8000; for(var i=0;i<bytes.length;i+=CH) s+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH)); return btoa(s);}
     function buildPacket(d){
-      var key='packet'+(d.track==='review'?'Review':'Recert');
-      if(!window.PDFLib||!form.dataset[key]) return Promise.resolve(null);
-      var url=form.dataset[key], sfx='_'+d.track;
+      if(!window.PDFLib||!form.dataset.packet) return Promise.resolve(null);
+      var url=form.dataset.packet, sfx='_recert';   // pages 1-2 are identical across the two packets
       return fetch(url).then(function(r){return r.arrayBuffer();}).then(function(bytes){
         return PDFLib.PDFDocument.load(bytes).then(function(doc){
           var f=doc.getForm(), pages=doc.getPages();
           function set(name,val){try{f.getTextField(name+sfx).setText(val||'');}catch(e){}}
           set('employee_name',d.employee_name); set('job_title',d.job_title); set('training_date_range',d.training_date_range);
-          set('day1_date',fmt(d.day1_date)); set('day2_date',fmt(d.day2_date)); set('day3_date',fmt(d.day3_date));
-          set('trainer_date_p1',fmt(d.trainer_date_p1)); set('fire_employee_name',d.fire_employee_name);
-          set('fire_training_date',fmt(d.fire_training_date)); set('facpr_date_top',fmt(d.facpr_date_top)); set('facpr_employee_name',d.facpr_employee_name);
+          set('day1_date',fmt(d.day1_date)); set('day2_date',fmt(d.day2_date));   // Day 3 is filled in on paper
+          set('trainer_date_p1',d.trainer_date_p1); try{f.getTextField('trainer_date_p1'+sfx).setFontSize(8);}catch(e){}
+          set('fire_employee_name',d.fire_employee_name); set('fire_training_date',fmt(d.fire_training_date));
+          set('osha_date',fmt(d.osha_date)); set('osha_print_name',d.osha_print_name); set('osha_work_location',d.osha_work_location);
           var drawn=d.staff_signature==='drawn on screen'&&sigImg.value;
           var work=drawn?doc.embedPng(sigImg.value):Promise.resolve(null);
           return work.then(function(png){
@@ -839,7 +918,7 @@ JS = r"""
     }
     var lastPdf=null;
     function deliver(bytes,d){
-      var name='Annual Training signed packet - '+(d.employee_name||'staff').replace(/[^\w .-]+/g,'')+'.pdf';
+      var name='Annual Training signed sheets - '+(d.employee_name||'staff').replace(/[^\w .-]+/g,'')+'.pdf';
       var blob=new Blob([bytes],{type:'application/pdf'}); lastPdf={blob:blob,name:name};
       document.getElementById('pdfdl').hidden=false;
       var file; try{file=new File([blob],name,{type:'application/pdf'});}catch(e){}
@@ -861,23 +940,20 @@ JS = r"""
     document.getElementById('pdfdl').addEventListener('click',function(){if(lastPdf) saveLast();});
 
     function mailBody(d){
-      var f=FAC[d.track||'recert'];
       var L=['SHARED SUPPORT ANNUAL TRAINING - SIGNED SHEETS','','1. Annual Training certificate (22.5 hours)'];
-      var sig=d.staff_signature==='drawn on screen'?'drawn on screen by '+(d.employee_name||'')+' (the drawing is on the printed sheets)':d.staff_signature;
-      ['employee_name','job_title','training_date_range','day1_date','day2_date','day3_date'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1&&k!=='training_date_range'?fmt(d[k]):(d[k]||'')));});
-      L.push('  Staff signature: '+sig,'  Attestation: agreed as printed on the sign page','  Date signed: '+fmt(d.trainer_date_p1),'','2. Fire Safety Training');
+      var sig=d.staff_signature==='drawn on screen'?'drawn on screen by '+(d.employee_name||'')+' (the drawing is on the signed sheets)':d.staff_signature;
+      ['employee_name','job_title','training_date_range','day1_date','day2_date'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1&&k!=='training_date_range'?fmt(d[k]):(d[k]||'')));});
+      L.push('  Day 3: in person, signed on paper','  Staff signature: '+sig,'  Attestation: agreed as printed on the sign page','  Trainer date: '+d.trainer_date_p1,'','2. Fire Safety Training (By Expert)');
       ['fire_employee_name','fire_training_date'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
-      L.push('  Employee signature: same as sheet 1','','3. '+f.title+' ('+f.type+')');
-      ['facpr_employee_name','facpr_date_top'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
-      L.push('  Employee signature: same as sheet 1');
+      L.push('  Employee signature: same as sheet 1','','3. Fire Safety / Emergency Training sign-in (OSHA, 1 hr)');
+      ['osha_date','osha_print_name','osha_work_location'].forEach(function(k){L.push('  '+LABELS[k]+': '+(k.indexOf('date')>-1?fmt(d[k]):(d[k]||'')));});
+      L.push('  Sign name: same as sheet 1');
       L.push('','Sent from the digital binder, content version '+d.content_version+', '+new Date().toISOString());
       return L.join('\n');
     }
-    form.querySelectorAll('[data-track]').forEach(function(b){b.addEventListener('click',function(){setTrack(b.dataset.track);});});
     document.getElementById('print').addEventListener('click',function(){window.print();});
     form.addEventListener('submit',function(e){
       e.preventDefault();
-      if(!track){note.textContent='Choose Recertification or Review only first.'; return;}
       if(!sigValue()){note.textContent='Sign in the box on the first sheet, or type your name.'; document.getElementById('sigpad').scrollIntoView({block:'center'}); return;}
       if(!form.checkValidity()){form.reportValidity(); note.textContent='Every field is required. Fill in the highlighted ones.'; return;}
       var data=values(); data.submitted_at=new Date().toISOString();
@@ -893,14 +969,14 @@ JS = r"""
           note.textContent='Your email app should have opened with the sheets filled in. Check it arrived in your sent items, or print the sheets instead.';
           return;
         }
-        if(bytes){data.packet_pdf=b64(bytes); data.packet_filename='Annual Training signed packet - '+(data.employee_name||'staff')+'.pdf';}
+        if(bytes){data.packet_pdf=b64(bytes); data.packet_filename='Annual Training signed sheets - '+(data.employee_name||'staff')+'.pdf';}
         submit.disabled=true; note.textContent='Sending…';
         return fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
           .then(function(r){if(!r.ok) throw new Error(r.status); note.textContent='Sent. The training department has your signed sheets.';})
           .catch(function(){submit.disabled=false; note.textContent='That didn’t go through. Try again, or print the sheets instead.';});
       }).catch(function(err){submit.disabled=false; note.textContent='Couldn’t build the PDF ('+err+'). Print the sheets instead.';});
     });
-    setTrack(null);
+    setup();
   }
 })();
 """
@@ -1179,7 +1255,7 @@ def render_sign():
            if SIG else f'<span class="sig-line">{esc(TRAINER)}</span>')
     trainer = (f'<div class="trainer"><b>Trainer:</b>{sig}'
                f'<span>{esc(TRAINER)}, {esc(TRAINER_DEPT)}</span>'
-               f'<span class="tdate">Date signed: <b id="trainer-date">(Day 3 date)</b></span></div>')
+               f'<span class="tdate">Date: <b id="trainer-date">(Day 1 to Day 2)</b></span></div>')
     submit_attr = (f' data-submit="{esc(ARGS.submit_url)}"' if ARGS.submit_url
                    else f' data-mailto="{esc(ARGS.sign_to)}"' if ARGS.sign_to else "")
     how = ("Submitting sends them to the training department"
@@ -1187,20 +1263,18 @@ def render_sign():
            f"Sending emails them to the training department at {esc(ARGS.sign_to)} from your own email"
            if ARGS.sign_to else "Print them and hand them in")
     if ARGS.sign_to and not ARGS.submit_url and FILL_PACKETS:
-        how = ("Sending builds your signed packet as a PDF and hands it to your email app, addressed to "
+        how = ("Sending builds your signed sheets as a PDF and hands it to your email app, addressed to "
                f"the training department at {esc(ARGS.sign_to)}")
-    objectives = "".join(f'<h3 class="plain">{esc(h)}</h3>{ul(items)}' for h, items in FACPR_OBJECTIVES)
-    rec = FACPR["recert"]
-    packet_attr = ("".join(f' data-packet-{t}="{url("assets", "packets", f.name).rstrip("/")}"' for t, f in PACKETS.items())
-                   if FILL_PACKETS else "")
+    packet_attr = f' data-packet="{url("assets", "packets", SHEETS).rstrip("/")}"' if FILL_PACKETS else ""
     pdflib = (f'<script src="{url("assets", "vendor", "pdf-lib.min.js").rstrip("/")}" defer></script>' if FILL_PACKETS else "")
+    sigcopy = '<div class="sigcopy" data-sigcopy><em>signed on the first sheet</em></div>'
     body = pdflib + f"""<div class="wrap" style="padding-top:34px">
 <div class="signintro"><h1 style="font-size:32px;margin:0 0 6px;font-weight:600">Sign your training sheets</h1>
-<p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you\u2019ve finished all three days. Enter your name and dates
-and sign once on the first sheet; the other two sheets fill in to match. {how}; printing gives you the same three sheets on paper.</p></div>
+<p style="color:var(--muted);margin:0 0 24px;max-width:58ch">Fill these in once you\u2019ve finished Day 2. Enter your name and dates
+and sign once on the first sheet; the other sheets fill in to match. {how}; printing gives you the same sheets on paper.
+The First Aid/CPR sheet is signed on paper with your trainer on Day 3.</p></div>
 <form id="signform"{submit_attr}{packet_attr} novalidate>
 <input type="hidden" name="content_version" value="{CONTENT_VERSION}">
-<input type="hidden" name="track" value="">
 <input type="hidden" name="trainer_date_p1" value="">
 
 <div class="sheet">{band}
@@ -1210,7 +1284,7 @@ and sign once on the first sheet; the other two sheets fill in to match. {how}; 
 <h3>TRAINING DATES</h3>
 <div class="datelist"><span>Day 1:</span><input type="date" name="day1_date" required aria-label="Day 1 date">
 <span>Day 2:</span><input type="date" name="day2_date" required aria-label="Day 2 date">
-<span>Day 3:</span><input type="date" name="day3_date" required aria-label="Day 3 date"></div>
+<span>Day 3:</span><span class="muted-note">in person, filled in by your trainer</span></div>
 <h3>DAY 1 - Annual Training</h3>{ul(CERT_TOPICS["day1"], two=True)}
 <h3>INDEPENDENT TRAININGS (complete before Day 2)</h3>{ul(CERT_TOPICS["independent"])}
 <h3>DAY 2 - Annual Training</h3>{ul(CERT_TOPICS["day2"])}
@@ -1231,7 +1305,7 @@ and sign once on the first sheet; the other two sheets fill in to match. {how}; 
 <h2>Emergency Training: Fire Safety Training</h2><p class="sub"><b>By Expert</b></p>
 <p class="certify">This is to certify that Shared Support, Inc. has conducted and completed<br>Fire Safety Training as specified below for:</p>
 <div class="row">{field("Employee Name", "fire_employee_name", extra=" data-follow='employee_name'")}
-<div class="field">Employee Signature<div class="sigcopy" data-sigcopy><em>signed on the first sheet</em></div><input type="hidden" name="fire_employee_signature"></div></div>
+<div class="field">Employee Signature{sigcopy}<input type="hidden" name="fire_employee_signature"></div></div>
 <h3>Training Date:</h3><div class="datelist"><span></span><input type="date" name="fire_training_date" required data-follow="day1_date" aria-label="Fire safety training date"></div>
 <h3>Training Topics:</h3>{ul(FIRE_TOPICS)}
 <div class="trainer"><span><b>{esc(TRAINER)}</b><br><small>Trainer\u2019s Name</small></span>
@@ -1239,18 +1313,16 @@ and sign once on the first sheet; the other two sheets fill in to match. {how}; 
 {foot}</div>
 
 <div class="sheet">{band}
-<h2>Training Cover</h2>
-<div class="row"><div class="datelist" style="margin-left:0"><b>Date:</b><input type="date" name="facpr_date_top" required data-follow="day3_date" aria-label="First aid training date"></div>
-<div style="text-align:right"><b>Total Hours: <span id="facpr-hours">{esc(rec["hours"])}</span></b></div></div>
-<p style="margin:14px 0 6px;font-family:var(--sans);font-size:13px;color:var(--muted)">Your trainer tells you which of these applies to you:</p>
-<div class="track"><button type="button" data-track="recert" aria-pressed="false">{esc(rec["button"])}</button>
-<button type="button" data-track="review" aria-pressed="false">{esc(FACPR["review"]["button"])}</button></div>
-<h2 id="facpr-title" style="text-align:left;font-size:20px;color:var(--maroon)">{esc(rec["title"])}</h2>
-<h3><em>TRAINING DESCRIPTION:</em></h3><p id="facpr-desc"><em>{esc(rec["description"])}</em></p>
-<h3>TRAINING OBJECTIVE:</h3><p style="margin:0 0 4px 14px">Demonstrate the skills for the following:</p>{objectives}
-<div class="idbox">{field("Employee Name:", "facpr_employee_name", extra=" data-facpr disabled data-follow='employee_name'")}
-<div><b>Type:</b> &nbsp;<span class="type" id="facpr-type">{esc(rec["type"])}</span></div></div>
-<div class="field">Employee Signature:<div class="sigcopy" data-sigcopy><em>signed on the first sheet</em></div><input type="hidden" name="facpr_employee_signature"></div>
+<h2>{esc(OSHA["title"])}</h2><p class="sub">Training record (OSHA sign-off)</p>
+<div class="row"><div class="datelist" style="margin-left:0"><b>Date:</b><input type="date" name="osha_date" required data-follow="day1_date" aria-label="Fire safety training date"></div>
+<div style="text-align:right"><b>Total Hours: {esc(OSHA["hours"])}</b></div></div>
+<h3>TRAINING NAME:</h3><p style="margin:0 0 4px 14px"><b>{esc(OSHA["title"].upper())}</b></p>
+<h3>TRAINING DESCRIPTION:</h3><p style="margin:0 0 4px 14px">{esc(OSHA["description"])}</p>
+<h3>TRAINING OBJECTIVES:</h3><p style="margin:0 0 4px 14px">{esc(OSHA["objectives"])}</p>
+<h3>SIGN IN</h3>
+<div class="row three">{field("Print Name", "osha_print_name", extra=" data-follow='employee_name'")}
+<div class="field">Sign Name{sigcopy}<input type="hidden" name="osha_signature"></div>
+{field("Work Location", "osha_work_location", ph="e.g. the home or program you work at")}</div>
 <div class="trainer"><b>Trainer\u2019s Signature:</b>{sig}<span>{esc(TRAINER)}</span></div>
 {foot}</div>
 
@@ -1333,6 +1405,8 @@ for e in SRC.get("extras", []):
     e.setdefault("revised", None)
     if e.get("path"):
         e["pdf"] = copy_pdf(e["path"], f"files/extras/{Path(e['path']).name}")
+        if e["pdf"] and correct_pdf(source_path(e["path"]), OUT / f"files/extras/{Path(e['path']).name}", Path(e["path"]).stem):
+            WARN.append(f"applied the site's wording corrections to the PDF download of '{e['title']}'")
     EXTRAS.append(e)
 
 write("assets/site.css", CSS.strip() + "\n")
@@ -1344,24 +1418,20 @@ else:
 if SIG:
     (OUT / "assets").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SIG, OUT / "assets" / "trainer-signature.png")
-PACKETS = {t: Path(f"static/packets/Annual_Training_Packet_BLANK_{t.upper()}.pdf") for t in ("recert", "review")}
+PACKET = Path("static/packets/Annual_Training_Packet_BLANK_RECERT.pdf")   # pages 1-2 are the same in REVIEW
+SHEETS = "Annual_Training_Sheets_BLANK.pdf"
 PDFLIB = Path("static/vendor/pdf-lib.min.js")
-if all(f.is_file() for f in PACKETS.values()) and PDFLIB.is_file():
+if PACKET.is_file() and PDFLIB.is_file():
     (OUT / "assets" / "packets").mkdir(parents=True, exist_ok=True)
-    for t, f in PACKETS.items():
-        shutil.copyfile(f, OUT / "assets" / "packets" / f.name)
-        # the packet's attestation says "all 15 sections"; the site has len(SECTIONS)
-        n = len(SECTIONS)
-        if correct_pdf(f, OUT / "assets" / "packets" / f.name, f.stem,
-                       [("all 15 sections", f"all {n} sections", "real section count")]):
-            WARN.append(f"packet {f.name}: attestation count set to {n} (blank still says 15)")
+    if build_blank_sheets(PACKET, OUT / "assets" / "packets" / SHEETS, len(SECTIONS)):
+        WARN.append(f"sheets: attestation count set to {len(SECTIONS)} (packet blank still says 15)")
     (OUT / "assets" / "vendor").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(PDFLIB, OUT / "assets" / "vendor" / "pdf-lib.min.js")
     FILL_PACKETS = True
 else:
     FILL_PACKETS = False
     WARN.append("blank packets or pdf-lib missing under static/; the sign page emails a text summary only")
-write("assets/site.js", JS.strip().replace("__FACPR__", json.dumps(FACPR)) + "\n")
+write("assets/site.js", JS.strip() + "\n")
 render_home()
 render_search()
 render_sign()
